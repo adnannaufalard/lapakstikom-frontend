@@ -33,7 +33,8 @@ function LoginForm() {
       
       if (result.requiresOnboarding && result.onboardingToken) {
         setOnboardingToken(result.onboardingToken);
-        router.push('/register');
+        // Redirect to onboarding page instead of register
+        router.push('/onboarding');
         return;
       }
 

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { register, checkUsername } from '@/lib/auth';
+import { register, checkUsername, completeOnboarding, getOnboardingToken } from '@/lib/auth';
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -12,6 +12,7 @@ export default function OnboardingPage() {
   const [error, setError] = useState('');
   const [checkingUsername, setCheckingUsername] = useState(false);
   const [usernameAvailable, setUsernameAvailable] = useState<boolean | null>(null);
+  const [isOnboardingFlow, setIsOnboardingFlow] = useState(false); // Track if coming from login
 
   const [formData, setFormData] = useState({
     email: '',
@@ -27,10 +28,19 @@ export default function OnboardingPage() {
   });
 
   useEffect(() => {
-    // Get email and password from sessionStorage
+    // Check if coming from login (with onboarding token) or register (with email/password)
+    const onboardingToken = getOnboardingToken();
     const email = sessionStorage.getItem('register_email');
     const password = sessionStorage.getItem('register_password');
 
+    // If has onboarding token (from login), skip to step 2 (complete profile)
+    if (onboardingToken) {
+      setIsOnboardingFlow(true);
+      setCurrentStep(2);
+      return;
+    }
+
+    // If from register flow, need email and password
     if (!email || !password) {
       router.push('/register');
       return;
@@ -139,7 +149,30 @@ export default function OnboardingPage() {
     setLoading(true);
 
     try {
-      // Register user with all data
+      if (isOnboardingFlow) {
+        // Onboarding flow: Complete profile for existing user
+        const result = await completeOnboarding({
+          username: formData.username,
+          role: formData.role,
+          bio: '',
+          phone: formData.phone,
+        });
+
+        // Clear onboarding token
+        sessionStorage.removeItem('onboarding_token');
+
+        // Redirect based on role
+        if (result.user.role === 'ADMIN') {
+          router.push('/admin');
+        } else if (result.user.role === 'UKM_OFFICIAL') {
+          router.push('/dashboard');
+        } else {
+          router.push('/');
+        }
+        return;
+      }
+
+      // Register flow: Create new account
       await register({
         email: formData.email,
         password: formData.password,

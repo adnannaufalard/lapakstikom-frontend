@@ -214,11 +214,13 @@ export function DashboardClient() {
                     <h3 className="font-medium text-gray-900">{app.ukm_name}</h3>
                     <p className="text-sm text-gray-600 mt-1">{app.user?.full_name} • {app.user?.email}</p>
                     <p className="text-xs text-gray-500 mt-1">
-                      {new Date(app.created_at).toLocaleDateString('id-ID', {
+                      <span suppressHydrationWarning>
+                        {new Date(app.created_at).toLocaleDateString('id-ID', {
                         day: 'numeric',
                         month: 'long',
                         year: 'numeric'
                       })}
+                      </span>
                     </p>
                   </div>
                   <div className="flex items-center gap-2 ml-4">

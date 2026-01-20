@@ -7,8 +7,10 @@ import { Banner, getActiveBanners } from '@/lib/homepage';
 export function HomepageBanners() {
   const [banners, setBanners] = useState<Banner[]>([]);
   const [loading, setLoading] = useState(true);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
     const fetchBanners = async () => {
       try {
         const data = await getActiveBanners();
@@ -28,6 +30,11 @@ export function HomepageBanners() {
 
     fetchBanners();
   }, []);
+
+  // Prevent hydration mismatch
+  if (!mounted) {
+    return null;
+  }
 
   if (loading) {
     return (

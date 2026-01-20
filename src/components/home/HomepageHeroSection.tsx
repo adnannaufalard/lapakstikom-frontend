@@ -9,8 +9,10 @@ export function HomepageHeroSection() {
   const [banners, setBanners] = useState<Banner[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
     const fetchData = async () => {
       try {
         const [bannersData, announcementsData] = await Promise.all([
@@ -40,6 +42,11 @@ export function HomepageHeroSection() {
 
     fetchData();
   }, []);
+
+  // Prevent hydration mismatch
+  if (!mounted) {
+    return null;
+  }
 
   if (loading) {
     return (

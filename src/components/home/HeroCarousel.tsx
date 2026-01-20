@@ -11,8 +11,9 @@ interface HeroCarouselProps {
 
 export function HeroCarousel({ banners = [] }: HeroCarouselProps) {
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [mounted, setMounted] = useState(false);
 
-  // Default banners if none provided
+  // Default banners if none provided - use static date to prevent hydration mismatch
   const defaultBanners: Banner[] = [
     {
       id: '1',
@@ -23,7 +24,7 @@ export function HeroCarousel({ banners = [] }: HeroCarouselProps) {
       banner_type: 'HERO',
       display_order: 1,
       is_active: true,
-      created_at: new Date().toISOString(),
+      created_at: '2024-01-01T00:00:00.000Z',
     },
     {
       id: '2',
@@ -34,7 +35,7 @@ export function HeroCarousel({ banners = [] }: HeroCarouselProps) {
       banner_type: 'HERO',
       display_order: 2,
       is_active: true,
-      created_at: new Date().toISOString(),
+      created_at: '2024-01-01T00:00:00.000Z',
     },
     {
       id: '3',
@@ -45,18 +46,34 @@ export function HeroCarousel({ banners = [] }: HeroCarouselProps) {
       banner_type: 'HERO',
       display_order: 3,
       is_active: true,
-      created_at: new Date().toISOString(),
+      created_at: '2024-01-01T00:00:00.000Z',
     },
   ];
 
   const slides = banners.length > 0 ? banners : defaultBanners;
 
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
     const timer = setInterval(() => {
       setCurrentSlide((prev) => (prev + 1) % slides.length);
     }, 5000);
     return () => clearInterval(timer);
-  }, [slides.length]);
+  }, [slides.length, mounted]);
+
+  // Prevent hydration mismatch
+  if (!mounted) {
+    return (
+      <div className="relative w-full bg-white overflow-hidden">
+        <div className="relative w-full" style={{ paddingBottom: '32.31%' }}>
+          <div className="absolute inset-0 bg-gray-200 animate-pulse" />
+        </div>
+      </div>
+    );
+  }
 
   const goToSlide = (index: number) => {
     setCurrentSlide(index);

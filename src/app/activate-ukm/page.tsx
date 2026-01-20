@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Navbar } from '@/components/layout/Navbar';
@@ -8,7 +8,7 @@ import { Footer } from '@/components/layout/Footer';
 import { Button, Alert } from '@/components/ui';
 import { apiPost, ApiResponse } from '@/lib/api';
 
-export default function ActivateUkmPage() {
+function ActivateUkmContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -44,11 +44,9 @@ export default function ActivateUkmPage() {
   }, [searchParams, router]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
-      <Navbar />
-      <main className="flex-1 container mx-auto px-4 py-8">
-        <div className="max-w-md mx-auto">
-          <div className="bg-white rounded-xl p-8 border border-gray-200 text-center">
+    <>
+      <div className="max-w-md mx-auto">
+        <div className="bg-white rounded-xl p-8 border border-gray-200 text-center">
             {loading && (
               <>
                 <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4"></div>
@@ -128,6 +126,25 @@ export default function ActivateUkmPage() {
             )}
           </div>
         </div>
+      </>
+  );
+}
+
+export default function ActivateUkmPage() {
+  return (
+    <div className="min-h-screen flex flex-col bg-gray-50">
+      <Navbar />
+      <main className="flex-1 container mx-auto px-4 py-8">
+        <Suspense fallback={
+          <div className="max-w-md mx-auto">
+            <div className="bg-white rounded-xl p-8 border border-gray-200 text-center">
+              <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4"></div>
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">Memuat...</h1>
+            </div>
+          </div>
+        }>
+          <ActivateUkmContent />
+        </Suspense>
       </main>
       <Footer />
     </div>

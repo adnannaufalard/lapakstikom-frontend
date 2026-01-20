@@ -6,10 +6,8 @@ const nextConfig: NextConfig = {
     // Skip type checking during dev for faster compilation
     ignoreBuildErrors: process.env.NODE_ENV === 'development',
   },
-  eslint: {
-    // Skip ESLint during dev for faster compilation
-    ignoreDuringBuilds: process.env.NODE_ENV === 'development',
-  },
+  // Note: `eslint` option removed because Next.js no longer supports it in `next.config`.
+  // Manage ESLint separately via .eslintrc or CI scripts (e.g. `npm run lint`).
   experimental: {
     // Optimize bundle size
     optimizePackageImports: ['@/components', '@/lib'],
@@ -21,7 +19,9 @@ const nextConfig: NextConfig = {
   // Disable x-powered-by header
   poweredByHeader: false,
   // Enable Turbopack explicitly (no webpack config needed)
-  turbopack: {},
+  turbopack: {
+    root: process.cwd(), // Set root to current working directory to avoid multiple lockfile warning
+  },
   // Configure allowed image domains
   images: {
     remotePatterns: [

@@ -43,12 +43,8 @@ export function HomepageHeroSection() {
     fetchData();
   }, []);
 
-  // Prevent hydration mismatch
-  if (!mounted) {
-    return null;
-  }
-
-  if (loading) {
+  // Prevent hydration mismatch - render skeleton during SSR or while loading
+  if (!mounted || loading) {
     return (
       <div>
         {/* Announcements skeleton */}

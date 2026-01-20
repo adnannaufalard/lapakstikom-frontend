@@ -48,22 +48,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refreshUser();
   }, []);
 
-  // Prevent hydration mismatch by not rendering auth-dependent content until mounted
-  if (!mounted) {
-    return (
-      <AuthContext.Provider
-        value={{
-          user: null,
-          loading: true,
-          isAuthenticated: false,
-          refreshUser,
-          logout,
-        }}
-      >
-        {children}
-      </AuthContext.Provider>
-    );
-  }
+  // Always render children to prevent hydration mismatch
+  // Just keep loading state true until mounted
 
   return (
     <AuthContext.Provider

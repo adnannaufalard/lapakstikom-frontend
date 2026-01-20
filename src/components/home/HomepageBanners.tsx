@@ -31,12 +31,8 @@ export function HomepageBanners() {
     fetchBanners();
   }, []);
 
-  // Prevent hydration mismatch
-  if (!mounted) {
-    return null;
-  }
-
-  if (loading) {
+  // Prevent hydration mismatch - show loading state during SSR or while loading
+  if (!mounted || loading) {
     return (
       <section className="py-8 bg-gray-50">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 space-y-5">

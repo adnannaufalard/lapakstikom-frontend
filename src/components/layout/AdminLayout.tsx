@@ -16,20 +16,26 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   const { user, logout, isLoading, isLoggedIn } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
+  const [mounted, setMounted] = useState(false);
+
+  // Wait for client-side mount to prevent hydration mismatch
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Centralized auth check - langsung redirect tanpa loading state tambahan
   useEffect(() => {
-    if (!isLoading) {
-      if (!isLoggedIn) {
-        router.push('/login?redirect=/admin');
-      } else if (user?.role !== 'ADMIN') {
-        router.push('/dashboard');
-      }
+    if (!mounted || isLoading) return;
+    
+    if (!isLoggedIn) {
+      router.push('/login?redirect=/admin');
+    } else if (user?.role !== 'ADMIN') {
+      router.push('/dashboard');
     }
-  }, [isLoading, isLoggedIn, user, router]);
+  }, [mounted, isLoading, isLoggedIn, user, router]);
 
-  // Don't render anything if not authenticated or not admin
-  if (isLoading || !isLoggedIn || !user || user.role !== 'ADMIN') {
+  // Don't render anything until mounted and auth checked
+  if (!mounted || isLoading || !isLoggedIn || !user || user.role !== 'ADMIN') {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>

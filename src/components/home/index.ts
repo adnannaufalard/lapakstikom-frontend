@@ -6,3 +6,5 @@ export { HelpCenter } from './HelpCenter';
 export { AnnouncementBanner } from './AnnouncementBanner';
 export { HomepageHeroSection } from './HomepageHeroSection';
 export { HomepageBanners } from './HomepageBanners';
+export { HomepageHeroSectionClient } from './HomepageHeroSectionClient';
+export { HomepageBannersClient } from './HomepageBannersClient';

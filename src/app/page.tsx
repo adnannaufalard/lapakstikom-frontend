@@ -5,9 +5,41 @@ import {
   ProductCard,
   ProductCatalog,
   HelpCenter,
-  HomepageHeroSection,
-  HomepageBanners
+  HomepageHeroSectionClient,
+  HomepageBannersClient
 } from "@/components/home";
+
+// Server-side data fetching
+async function getHomepageData() {
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+  
+  try {
+    const [bannersRes, announcementsRes] = await Promise.all([
+      fetch(`${API_URL}/homepage/banners?active_only=true`, { 
+        cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' }
+      }),
+      fetch(`${API_URL}/homepage/announcements?active_only=true`, { 
+        cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' }
+      }),
+    ]);
+
+    const bannersData = bannersRes.ok ? await bannersRes.json() : { data: [] };
+    const announcementsData = announcementsRes.ok ? await announcementsRes.json() : { data: [] };
+
+    return {
+      banners: bannersData.data || [],
+      announcements: announcementsData.data || [],
+    };
+  } catch (error) {
+    console.error('Failed to fetch homepage data:', error);
+    return {
+      banners: [],
+      announcements: [],
+    };
+  }
+}
 
 // Dummy data for products - will be fetched from API later
 const newProducts = [
@@ -38,14 +70,17 @@ const ukmProducts = [
 
 const recommendedProducts: any[] = [];
 
-export default function HomePage() {
+export default async function HomePage() {
+	// Fetch data on server
+	const { banners, announcements } = await getHomepageData();
+
 	return (
 		<div className="min-h-screen flex flex-col bg-gray-50">
 			<Navbar />
 
 			<main className="flex-grow">
 				{/* Hero Section with Announcements and Carousel */}
-				<HomepageHeroSection />
+				<HomepageHeroSectionClient banners={banners} announcements={announcements} />
 
 				{/* Category Menu Section */}
 				<section className="py-8 bg-white border-b border-gray-200">
@@ -122,7 +157,7 @@ export default function HomePage() {
 				</section>
 
 				{/* Promo Banners Section - Dynamic from Database */}
-				<HomepageBanners />
+				<HomepageBannersClient banners={banners} />
 
 				{/* Product Catalog Section with Tabs */}
 				<section className="py-8 bg-white">

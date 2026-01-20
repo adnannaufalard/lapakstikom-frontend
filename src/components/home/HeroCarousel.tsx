@@ -11,7 +11,6 @@ interface HeroCarouselProps {
 
 export function HeroCarousel({ banners = [] }: HeroCarouselProps) {
   const [currentSlide, setCurrentSlide] = useState(0);
-  const [mounted, setMounted] = useState(false);
 
   // Default banners if none provided - use static date to prevent hydration mismatch
   const defaultBanners: Banner[] = [
@@ -53,27 +52,11 @@ export function HeroCarousel({ banners = [] }: HeroCarouselProps) {
   const slides = banners.length > 0 ? banners : defaultBanners;
 
   useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (!mounted) return;
     const timer = setInterval(() => {
       setCurrentSlide((prev) => (prev + 1) % slides.length);
     }, 5000);
     return () => clearInterval(timer);
-  }, [slides.length, mounted]);
-
-  // Prevent hydration mismatch
-  if (!mounted) {
-    return (
-      <div className="relative w-full bg-white overflow-hidden">
-        <div className="relative w-full" style={{ paddingBottom: '32.31%' }}>
-          <div className="absolute inset-0 bg-gray-200 animate-pulse" />
-        </div>
-      </div>
-    );
-  }
+  }, [slides.length]);
 
   const goToSlide = (index: number) => {
     setCurrentSlide(index);

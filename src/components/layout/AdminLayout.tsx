@@ -17,36 +17,40 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
   const [mounted, setMounted] = useState(false);
+  const [hasRedirected, setHasRedirected] = useState(false);
 
+  // ALL HOOKS MUST BE AT THE TOP BEFORE ANY CONDITIONAL RETURNS!
+  
   // Wait for client-side mount to prevent hydration mismatch
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  // Centralized auth check - langsung redirect tanpa loading state tambahan
+  // Centralized auth check - only redirect once
   useEffect(() => {
-    if (!mounted || isLoading) return;
+    if (!mounted || isLoading || hasRedirected) return;
     
     if (!isLoggedIn) {
+      console.log('AdminLayout: Not logged in, redirecting to login');
+      setHasRedirected(true);
       router.push('/login?redirect=/admin');
-    } else if (user?.role !== 'ADMIN') {
-      router.push('/dashboard');
+      return;
     }
-  }, [mounted, isLoading, isLoggedIn, user, router]);
+    
+    if (user && user.role !== 'ADMIN') {
+      console.log('AdminLayout: Not admin, redirecting to dashboard. User role:', user.role);
+      setHasRedirected(true);
+      router.push('/dashboard');
+      return;
+    }
 
-  // Don't render anything until mounted and auth checked
-  if (!mounted || isLoading || !isLoggedIn || !user || user.role !== 'ADMIN') {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
+    console.log('AdminLayout: User authenticated as ADMIN', user);
+  }, [mounted, isLoading, isLoggedIn, user?.role, hasRedirected, router]);
 
   // Fetch pending UKM applications count
   useEffect(() => {
     // Only fetch if fully authenticated as admin
-    if (isLoading || !isLoggedIn || user?.role !== 'ADMIN') {
+    if (!mounted || isLoading || !isLoggedIn || user?.role !== 'ADMIN') {
       return;
     }
 
@@ -58,16 +62,45 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         }
       } catch (error) {
         console.error('Error fetching pending count:', error);
-        // Silently fail, don't show error to user
       }
     };
 
     fetchPendingCount();
     
-    // Auto refresh every 60 seconds (reduced frequency)
     const interval = setInterval(fetchPendingCount, 60000);
     return () => clearInterval(interval);
-  }, [isLoading, isLoggedIn, user]);
+  }, [mounted, isLoading, isLoggedIn, user?.role]);
+
+  // NOW CONDITIONAL RETURNS AFTER ALL HOOKS
+  
+  // Don't render anything until mounted and auth checked
+  if (!mounted || isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  // Show loading while redirecting
+  if (!isLoggedIn || !user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-gray-600">Redirecting to login...</div>
+      </div>
+    );
+  }
+
+  // Show loading if not admin
+  if (user.role !== 'ADMIN') {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-gray-600">Redirecting...</div>
+      </div>
+    );
+  }
+
+  // RENDER ADMIN PANEL - All hooks already called above
 
   const navigationSections = [
     {

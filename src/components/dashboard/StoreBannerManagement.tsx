@@ -59,6 +59,8 @@ export function StoreBannerManagement({
   const [selectedLayout, setSelectedLayout] = useState<string>(currentLayout);
   const [bannerFiles, setBannerFiles] = useState<File[]>([]);
   const [bannerPreviews, setBannerPreviews] = useState<string[]>([]);
+    const [bannerUrlInput, setBannerUrlInput] = useState<string>('');
+    const [bannerUrlPreviews, setBannerUrlPreviews] = useState<string[]>([]);
   
   // State untuk existing banners
   const [existingBanners, setExistingBanners] = useState<string[]>(currentBanners || []);
@@ -121,11 +123,13 @@ export function StoreBannerManagement({
     }
 
     setBannerFiles(files);
-    
+    setBannerUrlInput(''); // reset manual URL jika upload file
+    setBannerUrlPreviews([]);
+
     // Generate previews
     const previews: string[] = [];
     let loaded = 0;
-    
+
     files.forEach((file) => {
       const reader = new FileReader();
       reader.onloadend = () => {
@@ -137,6 +141,21 @@ export function StoreBannerManagement({
       };
       reader.readAsDataURL(file);
     });
+  };
+
+  // Handler untuk input URL manual banner (didefinisikan di level komponen)
+  const handleBannerUrlInput = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const url = e.target.value;
+    setBannerUrlInput(url);
+    setBannerFiles([]); // reset file jika input URL
+    setBannerPreviews([]);
+    if (url.trim() !== '') {
+      // Support multiple URL dipisah koma/enter
+      const urls = url.split(/[\n,]+/).map(u => u.trim()).filter(Boolean);
+      setBannerUrlPreviews(urls);
+    } else {
+      setBannerUrlPreviews([]);
+    }
   };
 
   const handleBackgroundChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -739,8 +758,9 @@ export function StoreBannerManagement({
           ))}
         </div>
 
-        {/* File Upload */}
+        {/* Opsi A: Upload file ke Supabase */}
         <div className="mb-4">
+          <label className="block font-medium text-gray-700 mb-1">Upload Gambar ke Supabase Storage</label>
           <input
             type="file"
             accept="image/*"
@@ -752,14 +772,36 @@ export function StoreBannerManagement({
               file:text-sm file:font-semibold
               file:bg-blue-50 file:text-blue-700
               hover:file:bg-blue-100"
+            disabled={uploading}
           />
           <p className="text-xs text-gray-500 mt-2">
             Upload {selectedLayout === 'layout_1' ? '2' : selectedLayout === 'layout_2' ? '3' : '4'} gambar sesuai layout yang dipilih
           </p>
         </div>
 
+        {/* Pembatas visual */}
+        <div className="flex items-center my-4">
+          <div className="flex-1 border-t border-gray-300"></div>
+          <span className="mx-4 text-gray-400 font-semibold">ATAU</span>
+          <div className="flex-1 border-t border-gray-300"></div>
+        </div>
+
+        {/* Opsi B: Input URL manual */}
+        <div className="mb-4">
+          <label className="block font-medium text-gray-700 mb-1">Masukkan URL Gambar Manual</label>
+          <textarea
+            placeholder="https://... (bisa lebih dari satu, pisahkan dengan enter/koma)"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            value={bannerUrlInput}
+            onChange={handleBannerUrlInput}
+            disabled={uploading}
+            rows={2}
+          />
+          <p className="text-xs text-gray-500 mt-2">Masukkan URL gambar jika tidak ingin upload file.</p>
+        </div>
+
         {/* Preview */}
-        {bannerPreviews.length > 0 && (
+        {(bannerPreviews.length > 0 /* file upload */ || false /* TODO: manual URL state */) && (
           <div className="mb-4">
             <p className="text-sm font-medium text-gray-700 mb-2">Preview:</p>
             <div className={getLayoutClass(selectedLayout)}>
@@ -797,7 +839,7 @@ export function StoreBannerManagement({
         <div className="flex justify-end">
           <button
             onClick={handleSaveBanners}
-            disabled={uploading || bannerFiles.length === 0}
+            disabled={uploading || (bannerFiles.length === 0 && bannerUrlPreviews.length === 0)}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
           >
             {uploading ? 'Uploading...' : 'Simpan Banner'}

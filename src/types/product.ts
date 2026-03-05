@@ -25,6 +25,11 @@ export interface Product {
     slug: string;
   };
   images?: ProductImage[];
+  // Tambahan agar sesuai backend
+  primary_image?: string;
+  price_striked?: number | string | null;
+  is_preorder?: boolean;
+  preorder_days?: number | null;
 }
 
 export interface ProductImage {
@@ -58,4 +63,7 @@ export interface CreateProductRequest {
   stock: number;
   condition: 'NEW' | 'USED';
   category_id?: string;
+  is_preorder?: boolean;
+  preorder_days?: number;
+  variations?: any[];
 }

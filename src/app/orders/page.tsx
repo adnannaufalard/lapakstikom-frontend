@@ -11,13 +11,14 @@ import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
 import { Button } from '@/components/ui/Button';
 
-const ORDER_STATUSES = [
-  { value: '', label: 'Semua Status' },
-  { value: 'WAITING_PAYMENT', label: 'Menunggu Pembayaran' },
-  { value: 'PAID_ESCROW', label: 'Dibayar' },
+const ORDER_TABS = [
+  { value: '', label: 'All' },
+  { value: 'WAITING_PAYMENT', label: 'Belum Bayar' },
+  { value: 'PAID_ESCROW', label: 'Sedang Dikemas' },
   { value: 'SHIPPED', label: 'Dikirim' },
   { value: 'COMPLETED', label: 'Selesai' },
   { value: 'CANCELLED', label: 'Dibatalkan' },
+  { value: 'REFUND_REQUESTED,REFUNDED', label: 'Pengembalian Barang' },
 ];
 
 function getStatusColor(status: string): string {
@@ -105,22 +106,26 @@ export default function OrdersPage() {
           <p className="mt-2 text-gray-600">Kelola dan pantau pesanan Anda</p>
         </div>
 
-        {/* Filter */}
-        <div className="mb-6 flex flex-wrap gap-4">
-          <select
-            value={statusFilter}
-            onChange={(e) => {
-              setStatusFilter(e.target.value);
-              setPage(1);
-            }}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          >
-            {ORDER_STATUSES.map((status) => (
-              <option key={status.value} value={status.value}>
-                {status.label}
-              </option>
+        {/* Filter Tabs */}
+        <div className="mb-6 overflow-x-auto">
+          <div className="flex gap-1 p-1 bg-gray-100 rounded-lg w-fit min-w-full sm:min-w-0">
+            {ORDER_TABS.map((tab) => (
+              <button
+                key={tab.value}
+                onClick={() => {
+                  setStatusFilter(tab.value);
+                  setPage(1);
+                }}
+                className={`px-4 py-2 text-sm font-medium rounded-md whitespace-nowrap transition-colors ${
+                  statusFilter === tab.value
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                {tab.label}
+              </button>
             ))}
-          </select>
+          </div>
         </div>
 
         {/* Error */}

@@ -44,25 +44,23 @@ const categories: Category[] = [
 
 export function CategoryMenu() {
   return (
-    <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+    <div className="flex">
       {categories.map((category) => (
         <Link
           key={category.slug}
           href={`/products?category=${category.slug}`}
-          className="group"
+          className="group flex flex-1 items-center justify-center gap-2 py-2 px-2 rounded-xl hover:bg-blue-50 transition-colors min-w-0"
         >
-          <div className="bg-white rounded-xl px-4 py-4 hover:shadow-md transition-all duration-300 border border-gray-100 flex flex-col items-center gap-2 text-center">
-            <div className="w-12 h-12 flex items-center justify-center bg-gray-50 rounded-lg">
-              <img 
-                src={category.icon} 
-                alt={category.name}
-                className="w-8 h-8 object-contain"
-              />
-            </div>
-            <span className="font-semibold text-gray-900 text-xs group-hover:text-blue-600 transition-colors">
-              {category.name}
-            </span>
+          <div className="w-10 h-10 flex items-center justify-center rounded-lg shrink-0">
+            <img
+              src={category.icon}
+              alt={category.name}
+              className="w-12 h-12 object-contain"
+            />
           </div>
+          <span className="text-xs font-semibold text-gray-700 group-hover:text-blue-600 transition-colors leading-tight whitespace-nowrap">
+            {category.name}
+          </span>
         </Link>
       ))}
     </div>

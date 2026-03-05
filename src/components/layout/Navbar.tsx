@@ -3,8 +3,13 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { useCart } from '@/contexts/CartContext';
 import { Button } from '@/components/ui';
 import { getRoleLabel } from '@/lib/utils';
+import { HiShoppingBag } from 'react-icons/hi2';
+import { IoChatbubbleEllipses } from 'react-icons/io5';
+import { GoBellFill } from 'react-icons/go';
+import { BiSolidCategory } from 'react-icons/bi';
 
 const categories = [
   { name: 'Rekomendasi', icon: '⭐', slug: 'rekomendasi' },
@@ -20,7 +25,7 @@ export function Navbar() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isCategoryOpen, setIsCategoryOpen] = useState(false);
-  const [cartCount] = useState(0); // This will be dynamic later
+  const { cartCount } = useCart();
 
   return (
     <nav className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-50">
@@ -36,11 +41,9 @@ export function Navbar() {
           <div className="hidden lg:block relative ml-6">
             <button
               onClick={() => setIsCategoryOpen(!isCategoryOpen)}
-              className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:text-blue-600 font-medium transition-colors"
+              className="group flex items-center gap-2 px-4 py-2 text-gray-500 hover:text-blue-500 font-medium transition-colors"
             >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
+              <BiSolidCategory className="w-5 h-5" />
               <span>Kategori</span>
               <svg className={`w-4 h-4 transition-transform ${isCategoryOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -98,21 +101,34 @@ export function Navbar() {
           </div>
 
           {/* Right Side Actions */}
-          <div className="flex items-center gap-4">
-            {/* Shopping Cart */}
-            <Link href="/cart" className="relative p-2 hover:bg-gray-100 rounded-lg transition-colors">
-              <svg className="w-6 h-6 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-              </svg>
-              {cartCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
-                  {cartCount}
+          <div className="flex items-center gap-2">
+            {/* Shopping Bag - Hidden for UKM and when not logged in as buyer */}
+            {(!user || ['MAHASISWA', 'DOSEN', 'KARYAWAN'].includes(user.role)) && (
+              <Link href="/cart" className="group relative p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                <HiShoppingBag className="w-6 h-6 text-gray-500 group-hover:text-blue-500 transition-colors" />
+                <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] font-bold rounded px-1 min-w-[18px] h-[16px] flex items-center justify-center">
+                  {cartCount > 99 ? '99+' : cartCount}
                 </span>
-              )}
-            </Link>
+              </Link>
+            )}
+
+            {/* Chat & Notification Icons - Only for logged in users */}
+            {isLoggedIn && user && (
+              <>
+                {/* Chat Icon */}
+                <Link href="/chat" className="group relative p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                  <IoChatbubbleEllipses className="w-6 h-6 text-gray-500 group-hover:text-blue-500 transition-colors" />
+                </Link>
+
+                {/* Notification Icon */}
+                <Link href="/notifications" className="group relative p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                  <GoBellFill className="w-6 h-6 text-gray-500 group-hover:text-blue-500 transition-colors" />
+                </Link>
+              </>
+            )}
 
             {/* Divider */}
-            <div className="h-8 w-px bg-gray-300"></div>
+            <div className="h-8 w-px bg-gray-300 mx-1"></div>
 
             {/* Auth Buttons / Profile */}
             {isLoading ? (
@@ -179,7 +195,7 @@ export function Navbar() {
                           Akun Saya
                         </Link>
                         <Link
-                          href="/orders"
+                          href="/profile?tab=orders"
                           className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                           onClick={() => setIsProfileOpen(false)}
                         >

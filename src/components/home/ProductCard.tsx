@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import Image from 'next/image';
+import { MdVerified, MdShoppingBag, MdStar } from 'react-icons/md';
 
 interface Product {
   id: string;
@@ -10,75 +10,130 @@ interface Product {
   image: string;
   seller: string;
   rating?: number;
-  sold?: number;
-  location?: string;
+  stock?: number;
+  condition?: string;
+  price_striked?: number | null;
+  seller_role?: string;
+  is_ukm_official?: boolean;
+  is_preorder?: boolean;
 }
 
-interface ProductCardProps {
-  product: Product;
-}
+const CONDITION_LABEL: Record<string, { label: string; className: string }> = {
+  NEW:   { label: 'New',    className: 'bg-blue-600 text-white' },
+  USED:  { label: 'Second', className: 'bg-red-500 text-white' },
+  FOODS: { label: 'Foods',  className: 'bg-green-500 text-white' },
+};
 
-export function ProductCard({ product }: ProductCardProps) {
-  const formatPrice = (price: number) => {
-    return new Intl.NumberFormat('id-ID', {
-      style: 'currency',
-      currency: 'IDR',
-      minimumFractionDigits: 0,
-    }).format(price);
-  };
+const ROLE_BADGE: Record<string, { label: string; className: string }> = {
+  MAHASISWA: { label: 'Mahasiswa', className: 'bg-blue-100 text-blue-700' },
+  DOSEN:     { label: 'Dosen',     className: 'bg-green-100 text-green-700' },
+  KARYAWAN:  { label: 'Karyawan',  className: 'bg-orange-100 text-orange-700' },
+};
+
+/** Locale-independent Rupiah formatter: 165000 → "165.000" */
+const rp = (n: number) => Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+
+export function ProductCard({ product }: { product: Product }) {
+  const discount =
+    product.price_striked && product.price_striked > product.price
+      ? Math.round(((product.price_striked - product.price) / product.price_striked) * 100)
+      : 0;
+  const conditionCfg = CONDITION_LABEL[(product.condition ?? '').toUpperCase()];
+  const rating = product.rating ?? 0;
+  const stock = product.stock ?? 0;
+  const roleBadge = ROLE_BADGE[product.seller_role ?? ''];
 
   return (
     <Link href={`/products/${product.id}`}>
-      <div className="bg-white rounded-xl overflow-hidden border border-gray-200 hover:shadow-lg transition-all duration-300 hover:-translate-y-1 group">
-        {/* Product Image */}
-        <div className="relative w-full aspect-square bg-gray-100 overflow-hidden">
-          <img
-            src={product.image}
-            alt={product.title}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-          />
-        </div>
-
-        {/* Product Info */}
-        <div className="p-4">
-          <h3 className="font-semibold text-gray-900 text-sm mb-2 line-clamp-2 min-h-[40px]">
-            {product.title}
-          </h3>
-          
-          <div className="text-lg font-bold text-gray-900 mb-2">
-            {formatPrice(product.price)}
-          </div>
-
-          {product.location && (
-            <div className="flex items-center text-xs text-gray-500 mb-2">
-              <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              {product.location}
+      <div className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow cursor-pointer overflow-hidden flex flex-col">
+        {/* Image – fixed height */}
+        <div className="relative h-44 bg-gray-100 shrink-0 overflow-hidden">
+          {product.image ? (
+            <img
+              src={product.image}
+              alt={product.title}
+              className="w-full h-full object-cover"
+              onError={(e) => { (e.target as HTMLImageElement).src = '/images/placeholder-product.png'; }}
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-gray-300">
+              <MdShoppingBag className="text-5xl" />
             </div>
           )}
 
-          <div className="flex items-center justify-between">
-            {product.rating && product.sold && (
-              <div className="flex items-center gap-2 text-xs text-gray-500">
-                <span className="flex items-center">
-                  <svg className="w-3 h-3 text-yellow-400 mr-0.5" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                  </svg>
-                  {product.rating}
+          {/* Condition ribbon – top-right */}
+          {conditionCfg && (
+            <div className={`absolute top-0 right-0 px-2.5 py-0.5 text-[11px] font-bold rounded-bl-xl rounded-tr-2xl ${conditionCfg.className}`}>
+              {conditionCfg.label}
+            </div>
+          )}
+
+          {/* Out-of-stock overlay */}
+          {stock === 0 && (
+            <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+              <span className="bg-red-600 text-white px-3 py-1 rounded-full text-xs font-semibold">Stok Habis</span>
+            </div>
+          )}
+
+          {/* PRE-ORDER bar */}
+          {product.is_preorder && (
+            <div className="absolute bottom-0 inset-x-0 bg-orange-500 text-white text-[10px] font-bold text-center py-1 tracking-wide">
+              PRE-ORDER
+            </div>
+          )}
+        </div>
+
+        {/* Info */}
+        <div className="p-3 flex flex-col gap-1">
+          {/* Name – max 2 lines with ellipsis */}
+          <h3 className="text-[13px] font-semibold text-gray-900 line-clamp-2 leading-snug min-h-[2.5rem] overflow-hidden">
+            {product.title}
+          </h3>
+
+          {/* Price + strikethrough + discount on one row */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-sm font-semibold text-gray-900">
+              Rp{rp(product.price)}
+            </span>
+            {discount > 0 && product.price_striked && (
+              <>
+                <span className="text-[10px] text-gray-400 line-through">
+                  Rp{rp(product.price_striked)}
                 </span>
-                <span className="text-gray-300">|</span>
-                <span>{product.sold} terjual</span>
-              </div>
+                <span className="text-[10px] font-bold bg-red-100 text-red-600 px-1.5 py-0.5 rounded">
+                  {discount}%
+                </span>
+              </>
             )}
           </div>
 
-          <div className="mt-2 pt-2 border-t border-gray-100">
-            <p className="text-xs text-gray-600 truncate">{product.seller}</p>
+          {/* Rating + Stock */}
+          <div className="flex items-center gap-1 text-[11px] text-gray-500 mt-0.5">
+            <MdStar className="text-yellow-400 text-xs shrink-0" />
+            <span className="text-gray-700 font-medium">{rating.toFixed(1)}</span>
+            <span className="text-gray-300 mx-0.5">|</span>
+            <span>Stok {stock}</span>
+          </div>
+
+          {/* Seller footer */}
+          <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+            <span className="text-[10px] text-gray-400 font-normal truncate max-w-[120px]">
+              @{product.seller}
+            </span>
+            {product.is_ukm_official ? (
+              <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-blue-600">
+                <MdVerified className="text-blue-600 shrink-0" />
+                UKM Official
+              </span>
+            ) : roleBadge ? (
+              <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${roleBadge.className}`}>
+                {roleBadge.label}
+              </span>
+            ) : null}
           </div>
         </div>
       </div>
     </Link>
   );
 }
+

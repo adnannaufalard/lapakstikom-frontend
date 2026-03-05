@@ -46,7 +46,7 @@ export function AnnouncementsManagementClient() {
     setLoading(true);
     setError('');
     try {
-      const response = await apiGet<ApiResponse<Announcement[]>>('/homepage/announcements');
+      const response = await apiGet<ApiResponse<Announcement[]>>('/homepage/announcements', true);
       
       if (response.success && response.data) {
         setAnnouncements(response.data);
@@ -66,14 +66,14 @@ export function AnnouncementsManagementClient() {
 
     try {
       if (editingAnnouncement) {
-        const response = await apiPut<ApiResponse<Announcement>>(`/homepage/announcements/${editingAnnouncement.id}`, formData);
+        const response = await apiPut<ApiResponse<Announcement>>(`/homepage/announcements/${editingAnnouncement.id}`, formData, true);
         if (response.success) {
           setSuccess('Pengumuman berhasil diupdate');
           fetchAnnouncements();
           handleCancel();
         }
       } else {
-        const response = await apiPost<ApiResponse<Announcement>>('/homepage/announcements', formData);
+        const response = await apiPost<ApiResponse<Announcement>>('/homepage/announcements', formData, true);
         if (response.success) {
           setSuccess('Pengumuman berhasil ditambahkan');
           fetchAnnouncements();
@@ -110,7 +110,7 @@ export function AnnouncementsManagementClient() {
     setSuccess('');
 
     try {
-      const response = await apiDelete<ApiResponse<null>>(`/homepage/announcements/${deletingAnnouncement.id}`);
+      const response = await apiDelete<ApiResponse<null>>(`/homepage/announcements/${deletingAnnouncement.id}`, true);
       if (response.success) {
         setSuccess('Pengumuman berhasil dihapus');
         fetchAnnouncements();

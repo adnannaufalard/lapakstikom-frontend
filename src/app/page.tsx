@@ -9,12 +9,28 @@ import {
   HomepageBannersClient
 } from "@/components/home";
 
+interface ProductFromAPI {
+  id: string;
+  title: string;
+  price: number;
+  price_striked?: number | null;
+  primary_image?: string;
+  seller_name?: string;
+  seller_username?: string;
+  seller_role?: string;
+  stock: number;
+  condition: string;
+  is_preorder?: boolean;
+  preorder_days?: number;
+  avg_rating?: number;
+}
+
 // Server-side data fetching
 async function getHomepageData() {
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
   
   try {
-    const [bannersRes, announcementsRes] = await Promise.all([
+    const [bannersRes, announcementsRes, newProductsRes, ukmProductsRes] = await Promise.all([
       fetch(`${API_URL}/homepage/banners?active_only=true`, { 
         cache: 'no-store',
         headers: { 'Content-Type': 'application/json' }
@@ -23,56 +39,60 @@ async function getHomepageData() {
         cache: 'no-store',
         headers: { 'Content-Type': 'application/json' }
       }),
+      fetch(`${API_URL}/products?limit=10&sort=newest`, { 
+        cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' }
+      }),
+      fetch(`${API_URL}/products?limit=12&seller_type=ukm`, { 
+        cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' }
+      }),
     ]);
 
     const bannersData = bannersRes.ok ? await bannersRes.json() : { data: [] };
     const announcementsData = announcementsRes.ok ? await announcementsRes.json() : { data: [] };
+    const newProductsData = newProductsRes.ok ? await newProductsRes.json() : { data: [] };
+    const ukmProductsData = ukmProductsRes.ok ? await ukmProductsRes.json() : { data: [] };
+
+    // Transform products to match ProductCard expectations
+    const transformProduct = (p: ProductFromAPI) => ({
+      id: p.id,
+      title: p.title,
+      price: Number(p.price),
+      price_striked: p.price_striked != null ? Number(p.price_striked) : null,
+      image: p.primary_image || '/images/placeholder-product.png',
+      seller: p.seller_username || p.seller_name || 'Seller',
+      condition: p.condition,
+      seller_role: p.seller_role,
+      is_ukm_official: p.seller_role === 'UKM_OFFICIAL',
+      rating: Number(p.avg_rating) || 0,
+      stock: p.stock,
+      is_preorder: p.is_preorder,
+      preorder_days: p.preorder_days,
+    });
 
     return {
       banners: bannersData.data || [],
       announcements: announcementsData.data || [],
+      newProducts: (newProductsData.data || []).map(transformProduct),
+      ukmProducts: (ukmProductsData.data || []).map(transformProduct),
     };
   } catch (error) {
     console.error('Failed to fetch homepage data:', error);
     return {
       banners: [],
       announcements: [],
+      newProducts: [],
+      ukmProducts: [],
     };
   }
 }
-
-// Dummy data for products - will be fetched from API later
-const newProducts = [
-  {
-    id: "1",
-    title: "Laptop ASUS ROG Strix G15",
-    price: 15000000,
-    image: "https://placehold.co/300x300/3b82f6/ffffff?text=Laptop",
-    seller: "Tech Store STIKOM",
-    rating: 4.8,
-    sold: 15,
-    location: "Yogyakarta",
-  },
-];
-
-const ukmProducts = [
-  {
-    id: "2",
-    title: "Kaos Angkatan 2025 STIKOM",
-    price: 85000,
-    image: "https://placehold.co/300x300/8b5cf6/ffffff?text=Kaos",
-    seller: "UKM Merchandise",
-    rating: 4.9,
-    sold: 250,
-    location: "Yogyakarta",
-  },
-];
 
 const recommendedProducts: any[] = [];
 
 export default async function HomePage() {
 	// Fetch data on server
-	const { banners, announcements } = await getHomepageData();
+	const { banners, announcements, newProducts, ukmProducts } = await getHomepageData();
 
 	return (
 		<div className="min-h-screen flex flex-col bg-gray-50">
@@ -90,7 +110,7 @@ export default async function HomePage() {
 				</section>
 
 				{/* New Products Section - Horizontal Scroll */}
-				<section className="py-8 bg-gray-50">
+				<section className="py-8 bg-white">
 					<div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 						<div className="flex items-center justify-between mb-6">
 							<h2 className="text-xl font-bold text-gray-900">Baru Diposting</h2>
@@ -106,14 +126,10 @@ export default async function HomePage() {
 						</div>
 
 						{newProducts.length > 0 ? (
-							<div className="overflow-x-auto pb-4 -mx-4 px-4">
-								<div className="flex gap-4 min-w-max">
-									{newProducts.map((product) => (
-										<div key={product.id} className="w-52">
-											<ProductCard product={product} />
-										</div>
-									))}
-								</div>
+						<div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+							{newProducts.map((product: any) => (
+								<ProductCard key={product.id} product={product} />
+							))}
 							</div>
 						) : (
 							<div className="text-center py-16 bg-white rounded-2xl">
@@ -141,8 +157,8 @@ export default async function HomePage() {
 							</Link>
 						</div>
 						{ukmProducts.length > 0 ? (
-							<div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-								{ukmProducts.map((product) => (
+						<div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+								{ukmProducts.map((product: any) => (
 									<ProductCard key={product.id} product={product} />
 								))}
 							</div>

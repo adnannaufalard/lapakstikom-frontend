@@ -41,7 +41,7 @@ export interface UkmProfile {
 }
 
 // Product Types
-export type ProductCondition = 'NEW' | 'USED';
+export type ProductCondition = 'NEW' | 'USED' | 'FOODS';
 export type ProductStatus = 'DRAFT' | 'ACTIVE' | 'INACTIVE' | 'BANNED';
 
 export interface Product {
@@ -60,6 +60,11 @@ export interface Product {
   seller?: User;
   category?: Category;
   images?: ProductImage[];
+  // Tambahan agar sesuai backend
+  primary_image?: string;
+  price_striked?: number | string | null;
+  is_preorder?: boolean;
+  preorder_days?: number | null;
 }
 
 export interface ProductImage {
@@ -194,6 +199,8 @@ export interface CreateProductRequest {
   stock: number;
   condition: ProductCondition;
   category_id?: string;
+  is_preorder?: boolean;
+  preorder_days?: number;
 }
 
 // Checkout Request

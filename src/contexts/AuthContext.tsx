@@ -28,8 +28,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const userData = await getMe();
       setUser(userData);
-    } catch (error) {
-      console.error('Failed to fetch user:', error);
+    } catch (error: any) {
+      // Silently handle authentication errors (token already cleared by API layer)
+      // Only log non-auth errors
+      if (error?.status !== 401) {
+        console.error('Failed to fetch user:', error);
+      }
+      // Ensure cleanup
       removeToken();
       setUser(null);
     } finally {

@@ -1,22 +1,67 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
 import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
 import { Button } from '@/components/ui/Button';
 import { Alert } from '@/components/ui/Alert';
-import { getRoleLabel } from '@/lib/utils';
-import { apiPut, apiPost } from '@/lib/api';
+import { getRoleLabel, formatCurrency } from '@/lib/utils';
+import { apiPut, apiPost, apiGet, ApiResponse } from '@/lib/api';
+import { getToken } from '@/lib/auth';
 import { ImageCropModal } from '@/components/profile/ImageCropModal';
+import { Store, Package, ShoppingCart, Wallet, ArrowRight, Shield, CheckCircle2, Loader2 } from 'lucide-react';
+import { HiUser, HiShoppingBag } from 'react-icons/hi2';
+import { RiLockPasswordFill, RiStore2Fill } from 'react-icons/ri';
+
+interface SellerStatus {
+  is_seller: boolean;
+  seller_type: 'UKM' | 'CIVITAS' | null;
+  profile: {
+    id: string;
+    store_name: string;
+    store_description: string;
+    status: string;
+  } | null;
+}
+
+interface SellerDashboard {
+  profile: SellerStatus['profile'];
+  stats: {
+    total_products: number;
+    active_products: number;
+    total_orders: number;
+    pending_orders: number;
+    total_revenue: number;
+  };
+}
+
+const SELLER_TERMS = [
+  'Hanya menjual produk legal dan sesuai ketentuan kampus',
+  'Deskripsi dan foto produk harus akurat',
+  'Kirim produk dalam 3 hari kerja',
+  'Respon pembeli dalam 24 jam',
+  'Terima pengembalian jika produk tidak sesuai',
+  'Biaya platform 5% per transaksi',
+];
 
 export default function ProfilePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, isLoading, isLoggedIn, refresh } = useAuth();
   const [activeTab, setActiveTab] = useState<'profile' | 'password' | 'orders' | 'seller'>('profile');
+  const [orderTab, setOrderTab] = useState('all');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Set tab from URL param
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab === 'orders' || tab === 'profile' || tab === 'password' || tab === 'seller') {
+      setActiveTab(tab);
+    }
+  }, [searchParams]);
 
   // Form states
   const [formData, setFormData] = useState({
@@ -46,6 +91,15 @@ export default function ProfilePage() {
   // Crop modal state
   const [showCropModal, setShowCropModal] = useState(false);
   const [imageToCrop, setImageToCrop] = useState('');
+
+  // Seller states
+  const [sellerStatus, setSellerStatus] = useState<SellerStatus | null>(null);
+  const [sellerDashboard, setSellerDashboard] = useState<SellerDashboard | null>(null);
+  const [sellerLoading, setSellerLoading] = useState(false);
+  const [sellerRegistering, setSellerRegistering] = useState(false);
+  const [storeName, setStoreName] = useState('');
+  const [storeDescription, setStoreDescription] = useState('');
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !isLoggedIn) {
@@ -79,14 +133,107 @@ export default function ProfilePage() {
         nim: user.nim || '',
         program_studi: user.program_studi || '',
       });
+
+      // Fetch seller status for civitas users
+      if (user.role !== 'ADMIN' && user.role !== 'UKM_OFFICIAL') {
+        fetchSellerStatus();
+      }
     }
   }, [user]);
+
+  // Fetch seller status
+  const fetchSellerStatus = async () => {
+    // Ensure token exists before making API call
+    const token = getToken();
+    if (!token) {
+      console.warn('No token available for seller status fetch');
+      return;
+    }
+    
+    setSellerLoading(true);
+    try {
+      const response = await apiGet<ApiResponse<SellerStatus>>('/seller/status');
+      if (response.success && response.data) {
+        setSellerStatus(response.data);
+        
+        // If already a seller, fetch dashboard data
+        if (response.data.is_seller) {
+          fetchSellerDashboard();
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching seller status:', err);
+    } finally {
+      setSellerLoading(false);
+    }
+  };
+
+  // Fetch seller dashboard
+  const fetchSellerDashboard = async () => {
+    // Ensure token exists before making API call
+    const token = getToken();
+    if (!token) {
+      console.warn('No token available for seller dashboard fetch');
+      return;
+    }
+    
+    try {
+      const response = await apiGet<ApiResponse<SellerDashboard>>('/seller/dashboard');
+      if (response.success && response.data) {
+        setSellerDashboard(response.data);
+      }
+    } catch (err) {
+      console.error('Error fetching seller dashboard:', err);
+    }
+  };
+
+  // Register as seller
+  const handleSellerRegistration = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!termsAccepted) {
+      setError('Anda harus menyetujui syarat dan ketentuan');
+      return;
+    }
+
+    // Ensure token exists before making API call
+    const token = getToken();
+    if (!token) {
+      setError('Sesi telah berakhir. Silakan login kembali.');
+      return;
+    }
+
+    setSellerRegistering(true);
+    setError('');
+
+    try {
+      const response = await apiPost<ApiResponse>('/seller/register', {
+        terms_accepted: termsAccepted,
+      });
+
+      if (response.success) {
+        setSuccess('Berhasil mendaftar sebagai seller!');
+        fetchSellerStatus();
+      } else {
+        setError(response.message || 'Gagal mendaftar sebagai seller');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal mendaftar sebagai seller');
+    } finally {
+      setSellerRegistering(false);
+    }
+  };
 
   const handleProfileUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
     setSuccess('');
+
+    // Validation
+    if (!formData.gender) { setError('Jenis kelamin wajib diisi'); setLoading(false); return; }
+    if (!formData.nim.trim()) { setError('NIM wajib diisi'); setLoading(false); return; }
+    if (!formData.program_studi.trim()) { setError('Program studi wajib diisi'); setLoading(false); return; }
+    if (!formData.phone.trim()) { setError('Nomor telepon wajib diisi'); setLoading(false); return; }
 
     try {
       await apiPut('/profile', {
@@ -271,10 +418,13 @@ export default function ProfilePage() {
   }
 
   const menuItems = [
-    { id: 'profile' as const, label: 'Profil Saya', icon: '' },
-    { id: 'password' as const, label: 'Ubah Password', icon: '' },
-    { id: 'orders' as const, label: 'Pesanan Saya', icon: '' },
-    { id: 'seller' as const, label: 'Dashboard Seller', icon: '' },
+    { id: 'profile' as const, label: 'Profil Saya', icon: <HiUser className="w-5 h-5" /> },
+    { id: 'password' as const, label: 'Ubah Password', icon: <RiLockPasswordFill className="w-5 h-5" /> },
+    { id: 'orders' as const, label: 'Pesanan Saya', icon: <HiShoppingBag className="w-5 h-5" /> },
+    // Only show seller menu for civitas (non-UKM, non-ADMIN)
+    ...(user.role !== 'ADMIN' && user.role !== 'UKM_OFFICIAL' 
+      ? [{ id: 'seller' as const, label: 'Dashboard Seller', icon: <RiStore2Fill className="w-5 h-5" /> }] 
+      : []),
   ];
 
   return (
@@ -282,12 +432,6 @@ export default function ProfilePage() {
       <Navbar />
 
       <main className="flex-1 container mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Pengaturan Akun</h1>
-          <p className="text-gray-600 mt-1">Kelola informasi profil dan keamanan akun Anda</p>
-        </div>
-
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Sidebar */}
           <div className="lg:col-span-1">
@@ -353,7 +497,7 @@ export default function ProfilePage() {
                         : 'text-gray-700 hover:bg-gray-50'
                     }`}
                   >
-                    <span className="text-lg">{item.icon}</span>
+                    {item.icon}
                     {item.label}
                   </button>
                 ))}
@@ -495,12 +639,13 @@ export default function ProfilePage() {
 
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Nomor Telepon
+                          Nomor Telepon <span className="text-red-500">*</span>
                         </label>
                         <input
                           type="tel"
                           value={formData.phone}
                           onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                          required
                           className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                           placeholder="08xxxxxxxxxx"
                         />
@@ -508,11 +653,12 @@ export default function ProfilePage() {
 
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Jenis Kelamin
+                          Jenis Kelamin <span className="text-red-500">*</span>
                         </label>
                         <select
                           value={formData.gender}
                           onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
+                          required
                           className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         >
                           <option value="">Pilih jenis kelamin</option>
@@ -535,12 +681,13 @@ export default function ProfilePage() {
 
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">
-                          NIM
+                          NIM <span className="text-red-500">*</span>
                         </label>
                         <input
                           type="text"
                           value={formData.nim}
                           onChange={(e) => setFormData({ ...formData, nim: e.target.value })}
+                          required
                           className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                           placeholder="NIM Mahasiswa"
                         />
@@ -548,12 +695,13 @@ export default function ProfilePage() {
 
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Program Studi
+                          Program Studi <span className="text-red-500">*</span>
                         </label>
                         <input
                           type="text"
                           value={formData.program_studi}
                           onChange={(e) => setFormData({ ...formData, program_studi: e.target.value })}
+                          required
                           className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                           placeholder="Contoh: Teknik Informatika"
                         />
@@ -630,15 +778,54 @@ export default function ProfilePage() {
               {/* Orders Tab */}
               {activeTab === 'orders' && (
                 <div>
-                  <h2 className="text-xl font-semibold text-gray-900 mb-6">Pesanan Saya</h2>
+                  <h2 className="text-xl font-semibold text-gray-900 mb-4">Pesanan Saya</h2>
+
+                  {/* Search bar */}
+                  <div className="relative mb-4">
+                    <input
+                      type="text"
+                      placeholder="Cari pesanan (nama produk, no. pesanan...)"
+                      className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-gray-50"
+                    />
+                    <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                  </div>
+
+                  {/* Status tabs */}
+                  <div className="flex gap-1 overflow-x-auto pb-1 mb-6 border-b border-gray-100">
+                    {[
+                      { key: 'all',       label: 'Semua' },
+                      { key: 'unpaid',    label: 'Belum Bayar' },
+                      { key: 'packed',    label: 'Sedang Dikemas' },
+                      { key: 'shipped',   label: 'Dikirim' },
+                      { key: 'done',      label: 'Selesai' },
+                      { key: 'cancelled', label: 'Dibatalkan' },
+                      { key: 'return',    label: 'Pengembalian' },
+                    ].map(t => (
+                      <button
+                        key={t.key}
+                        onClick={() => setOrderTab(t.key)}
+                        className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap transition-colors relative ${
+                          orderTab === t.key
+                            ? 'text-blue-600 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-blue-600'
+                            : 'text-gray-500 hover:text-gray-700'
+                        }`}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Empty state */}
                   <div className="text-center py-12">
                     <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
                       <svg className="w-8 h-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
                       </svg>
                     </div>
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">Belum ada pesanan</h3>
-                    <p className="text-gray-600 mb-4">Mulai berbelanja dan pesanan Anda akan muncul di sini</p>
+                    <h3 className="text-base font-medium text-gray-900 mb-1">Belum ada pesanan</h3>
+                    <p className="text-sm text-gray-500 mb-4">Mulai berbelanja dan pesanan Anda akan muncul di sini</p>
                     <Link href="/products">
                       <Button>Mulai Belanja</Button>
                     </Link>
@@ -650,45 +837,136 @@ export default function ProfilePage() {
               {activeTab === 'seller' && (
                 <div>
                   <h2 className="text-xl font-semibold text-gray-900 mb-6">Dashboard Seller</h2>
-                  <div className="space-y-4">
-                    <div className="bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl p-6 text-white">
-                      <h3 className="text-lg font-semibold mb-2">Mulai Berjualan di Lapak STIKOM</h3>
-                      <p className="text-blue-100 mb-4">Jual produk Anda dan raih peluang bisnis baru</p>
-                      <Link href="/products/create">
-                        <Button variant="outline" className="bg-white text-blue-600 hover:bg-blue-50">
-                          Tambah Produk
-                        </Button>
-                      </Link>
+                  
+                  {sellerLoading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
                     </div>
+                  ) : sellerStatus?.is_seller ? (
+                    /* Already registered - Show overview */
+                    <div className="space-y-6">
+                      {/* Store Info */}
+                      <div className="bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl p-6 text-white">
+                        <div className="flex items-center gap-3 mb-2">
+                          <Store className="w-6 h-6" />
+                          <h3 className="text-lg font-semibold">{sellerStatus.profile?.store_name || 'Toko Anda'}</h3>
+                        </div>
+                        <p className="text-blue-100 text-sm">
+                          {sellerStatus.profile?.store_description || 'Toko Anda siap untuk berjualan!'}
+                        </p>
+                      </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="bg-gray-50 rounded-lg p-4">
-                        <p className="text-sm text-gray-600 mb-1">Total Produk</p>
-                        <p className="text-2xl font-bold text-gray-900">0</p>
+                      {/* Stats */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                              <Package className="w-5 h-5 text-blue-600" />
+                            </div>
+                            <div>
+                              <p className="text-2xl font-bold text-gray-900">
+                                {sellerDashboard?.stats.total_products || 0}
+                              </p>
+                              <p className="text-sm text-gray-600">Total Produk</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center">
+                              <ShoppingCart className="w-5 h-5 text-amber-600" />
+                            </div>
+                            <div>
+                              <p className="text-2xl font-bold text-gray-900">
+                                {sellerDashboard?.stats.pending_orders || 0}
+                              </p>
+                              <p className="text-sm text-gray-600">Pesanan Masuk</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                              <Wallet className="w-5 h-5 text-green-600" />
+                            </div>
+                            <div>
+                              <p className="text-2xl font-bold text-gray-900">
+                                {formatCurrency(sellerDashboard?.stats.total_revenue || 0)}
+                              </p>
+                              <p className="text-sm text-gray-600">Saldo</p>
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                      <div className="bg-gray-50 rounded-lg p-4">
-                        <p className="text-sm text-gray-600 mb-1">Pesanan Masuk</p>
-                        <p className="text-2xl font-bold text-gray-900">0</p>
-                      </div>
-                      <div className="bg-gray-50 rounded-lg p-4">
-                        <p className="text-sm text-gray-600 mb-1">Total Penjualan</p>
-                        <p className="text-2xl font-bold text-gray-900">Rp 0</p>
-                      </div>
-                    </div>
 
-                    <div className="flex gap-3">
-                      <Link href="/dashboard/products" className="flex-1">
-                        <Button variant="outline" className="w-full">
-                          Kelola Produk
-                        </Button>
-                      </Link>
-                      <Link href="/dashboard/orders" className="flex-1">
-                        <Button variant="outline" className="w-full">
-                          Pesanan Masuk
+                      {/* Action Button */}
+                      <Link href="/seller/dashboard">
+                        <Button className="w-full flex items-center justify-center gap-2">
+                          <Store className="w-4 h-4" />
+                          Buka Dashboard Seller
+                          <ArrowRight className="w-4 h-4" />
                         </Button>
                       </Link>
                     </div>
-                  </div>
+                  ) : (
+                    /* Not registered - Show registration form */
+                    <div className="space-y-6">
+                      {/* Header */}
+                      <div className="text-center pb-4 border-b border-gray-200">
+                        <div className="inline-flex items-center justify-center w-14 h-14 bg-blue-100 rounded-full mb-3">
+                          <Store className="w-7 h-7 text-blue-600" />
+                        </div>
+                        <h3 className="text-lg font-semibold text-gray-900">Mulai Berjualan</h3>
+                        <p className="text-sm text-gray-600">Daftarkan toko Anda dan mulai raih keuntungan</p>
+                      </div>
+
+                      {/* Terms */}
+                      <div className="bg-gray-50 rounded-lg p-4">
+                        <div className="flex items-center gap-2 mb-3">
+                          <Shield className="w-4 h-4 text-blue-600" />
+                          <h4 className="text-sm font-medium text-gray-900">Syarat & Ketentuan Seller</h4>
+                        </div>
+                        <ul className="space-y-2">
+                          {SELLER_TERMS.map((term, index) => (
+                            <li key={index} className="flex items-start gap-2 text-xs text-gray-600">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0 mt-0.5" />
+                              {term}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      {/* Registration Form */}
+                      <form onSubmit={handleSellerRegistration} className="space-y-4">
+                        <label className="flex items-start gap-3 cursor-pointer p-3 bg-blue-50 rounded-lg border border-blue-200">
+                          <input
+                            type="checkbox"
+                            checked={termsAccepted}
+                            onChange={(e) => setTermsAccepted(e.target.checked)}
+                            className="mt-0.5 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                          />
+                          <span className="text-sm text-gray-700">
+                            Saya telah membaca dan menyetujui <span className="font-medium text-blue-600">Syarat dan Ketentuan Seller</span>
+                          </span>
+                        </label>
+
+                        <Button
+                          type="submit"
+                          disabled={sellerRegistering || !termsAccepted}
+                          className="w-full flex items-center justify-center gap-2"
+                        >
+                          {sellerRegistering ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <>
+                              <Store className="w-4 h-4" />
+                              Daftar Sebagai Seller
+                            </>
+                          )}
+                        </Button>
+                      </form>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

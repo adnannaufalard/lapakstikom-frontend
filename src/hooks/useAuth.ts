@@ -29,9 +29,13 @@ export function useAuth(): UseAuthReturn {
     try {
       const userData = await getMe();
       setUser(userData);
-    } catch (error) {
-      console.error('Failed to fetch user:', error);
-      // Token mungkin expired, hapus token
+    } catch (error: any) {
+      // Silently handle authentication errors (token already cleared by API layer)
+      // Only log non-auth errors
+      if (error?.status !== 401) {
+        console.error('Failed to fetch user:', error);
+      }
+      // Ensure cleanup
       authLogout();
       setUser(null);
     } finally {
@@ -46,6 +50,7 @@ export function useAuth(): UseAuthReturn {
   const logout = useCallback(() => {
     authLogout();
     setUser(null);
+    window.location.href = '/';
   }, []);
 
   return {

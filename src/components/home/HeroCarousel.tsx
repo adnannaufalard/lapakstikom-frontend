@@ -74,51 +74,59 @@ export function HeroCarousel({ banners = [] }: HeroCarouselProps) {
     <div className="relative w-full bg-white overflow-hidden group">
       {/* Aspect ratio container 1368:442 */}
       <div className="relative w-full" style={{ paddingBottom: '32.31%' }}>
-        {/* Slides */}
-        <div className="absolute inset-0">
-          {slides.map((banner, index) => {
-            const slideContent = (
-              <>
-                <img
-                  src={banner.image_url}
-                  alt={banner.title}
-                  className="w-full h-full object-cover select-none"
-                  loading="eager"
-                  draggable="false"
-                />
-                {/* Optional overlay with title/description - only show if description exists */}
-                {banner.description && (
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent flex items-end p-8 pointer-events-none">
-                    <div className="text-white max-w-2xl">
-                      <h2 className="text-3xl font-bold mb-2">{banner.title}</h2>
-                      <p className="text-lg text-white/90">{banner.description}</p>
+        {/* Slide track — translateX-based sliding animation */}
+        <div className="absolute inset-0 overflow-hidden">
+          <div
+            className="flex h-full transition-transform duration-700 ease-in-out"
+            style={{
+              width: `${slides.length * 100}%`,
+              transform: `translateX(-${(currentSlide * 100) / slides.length}%)`,
+            }}
+          >
+            {slides.map((banner) => {
+              const slideContent = (
+                <>
+                  <img
+                    src={banner.image_url}
+                    alt={banner.title}
+                    className="absolute inset-0 w-full h-full object-cover select-none"
+                    loading="eager"
+                    draggable="false"
+                  />
+                  {banner.description && (
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent flex items-end p-8 pointer-events-none">
+                      <div className="text-white max-w-2xl">
+                        <h2 className="text-3xl font-bold mb-2">{banner.title}</h2>
+                        <p className="text-lg text-white/90">{banner.description}</p>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </>
-            );
+                  )}
+                </>
+              );
 
-            const slideClasses = `absolute inset-0 transition-opacity duration-500 ${
-              index === currentSlide ? 'opacity-100' : 'opacity-0'
-            }`;
+              const slideStyle = { width: `${100 / slides.length}%` };
+              const slideClass = 'relative flex-shrink-0 h-full';
 
-            return banner.link_url ? (
-              <Link
-                key={banner.id}
-                href={banner.link_url}
-                className={slideClasses}
-              >
-                {slideContent}
-              </Link>
-            ) : (
-              <div
-                key={banner.id}
-                className={slideClasses}
-              >
-                {slideContent}
-              </div>
-            );
-          })}
+              return banner.link_url ? (
+                <Link
+                  key={banner.id}
+                  href={banner.link_url}
+                  style={slideStyle}
+                  className={slideClass}
+                >
+                  {slideContent}
+                </Link>
+              ) : (
+                <div
+                  key={banner.id}
+                  style={slideStyle}
+                  className={slideClass}
+                >
+                  {slideContent}
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         {/* Navigation Arrows */}

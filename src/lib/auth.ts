@@ -77,7 +77,7 @@ export interface CheckUsernameResponse {
   username: string;
 }
 
-// Token management
+// Token management - User Session (for marketplace)
 export function setToken(token: string): void {
   if (typeof window !== 'undefined') {
     localStorage.setItem('token', token);
@@ -97,6 +97,28 @@ export function removeToken(): void {
 
 export function isAuthenticated(): boolean {
   return !!getToken();
+}
+
+// Admin Token management - Isolated Session (admin panel only)
+export function setAdminToken(token: string): void {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('admin_token', token);
+  }
+}
+
+export function getAdminToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem('admin_token');
+}
+
+export function removeAdminToken(): void {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('admin_token');
+  }
+}
+
+export function isAdminAuthenticated(): boolean {
+  return !!getAdminToken();
 }
 
 // Onboarding token (temporary)
@@ -136,6 +158,20 @@ export function removePendingEmail(): void {
 }
 
 // Auth API calls
+
+// Admin Login - Isolated session for admin panel
+export async function adminLogin(data: LoginRequest): Promise<LoginResponse> {
+  const response = await apiPost<ApiResponse<LoginResponse>>('/auth/admin/login', data);
+  if (response.data) {
+    if (response.data.token && response.data.user) {
+      setAdminToken(response.data.token);
+    }
+    return response.data;
+  }
+  throw new Error(response.message || 'Login admin gagal');
+}
+
+// User Login - Block ADMIN from this endpoint
 export async function login(data: LoginRequest): Promise<LoginResponse> {
   const response = await apiPost<ApiResponse<LoginResponse>>('/auth/login', data);
   if (response.data) {
@@ -214,4 +250,8 @@ export function logout(): void {
   removeToken();
   removeOnboardingToken();
   removePendingEmail();
+}
+
+export function adminLogout(): void {
+  removeAdminToken();
 }

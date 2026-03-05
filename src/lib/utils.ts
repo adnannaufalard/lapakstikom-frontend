@@ -1,13 +1,8 @@
-/**
- * Utility functions
- */
+import { clsx, type ClassValue } from "clsx"
+import { twMerge } from "tailwind-merge"
 
-import { type ClassValue, clsx } from 'clsx';
-import { twMerge } from 'tailwind-merge';
-
-// Combine Tailwind classes
 export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
+  return twMerge(clsx(inputs))
 }
 
 // Format harga ke Rupiah
@@ -50,39 +45,69 @@ export function truncate(text: string, maxLength: number): string {
 export function getInitials(name: string): string {
   return name
     .split(' ')
-    .map((word) => word[0])
+    .map((word) => word.charAt(0))
     .join('')
     .toUpperCase()
     .slice(0, 2);
 }
 
-// Status order ke bahasa Indonesia
+// Slugify text
+export function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, '')
+    .replace(/[\s_-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+// Check if file is image
+export function isImageFile(file: File): boolean {
+  return file.type.startsWith('image/');
+}
+
+// Format file size
+export function formatFileSize(bytes: number): string {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// Debounce function
+export function debounce<T extends (...args: any[]) => any>(
+  func: T,
+  wait: number
+): (...args: Parameters<T>) => void {
+  let timeout: NodeJS.Timeout;
+  return (...args: Parameters<T>) => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  };
+}
+
+// Get role label for display
+export function getRoleLabel(role: string): string {
+  const labels: Record<string, string> = {
+    ADMIN: 'Admin',
+    UKM_OFFICIAL: 'UKM Official',
+    MAHASISWA: 'Mahasiswa',
+    DOSEN: 'Dosen',
+    KARYAWAN: 'Karyawan',
+  };
+  return labels[role] || role;
+}
+
+// Get order status label for display
 export function getOrderStatusLabel(status: string): string {
-  const statusMap: Record<string, string> = {
+  const labels: Record<string, string> = {
     WAITING_PAYMENT: 'Menunggu Pembayaran',
     PAID_ESCROW: 'Dibayar (Escrow)',
     SHIPPED: 'Dikirim',
     COMPLETED: 'Selesai',
     CANCELLED: 'Dibatalkan',
-    REFUND_REQUESTED: 'Permintaan Refund',
+    REFUND_REQUESTED: 'Refund Diminta',
     REFUNDED: 'Direfund',
   };
-  return statusMap[status] || status;
-}
-
-// Product condition ke bahasa Indonesia
-export function getConditionLabel(condition: string): string {
-  return condition === 'NEW' ? 'Baru' : 'Bekas';
-}
-
-// Role label
-export function getRoleLabel(role: string): string {
-  const roleMap: Record<string, string> = {
-    ADMIN: 'Administrator',
-    UKM_OFFICIAL: 'Official UKM',
-    MAHASISWA: 'Mahasiswa',
-    DOSEN: 'Dosen',
-    KARYAWAN: 'Karyawan',
-  };
-  return roleMap[role] || role;
+  return labels[status] || status;
 }

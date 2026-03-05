@@ -102,10 +102,13 @@ export function formatPrice(price: number): string {
 
 // Get primary image URL
 export function getPrimaryImage(product: Product): string {
-  if (!product.images || product.images.length === 0) {
-    return '/images/placeholder-product.png';
+  // Support for both images array and primary_image string
+  if (product.images && product.images.length > 0) {
+    const primaryImage = product.images.find(img => img.is_primary);
+    return primaryImage?.image_url || product.images[0].image_url;
   }
-  
-  const primaryImage = product.images.find(img => img.is_primary);
-  return primaryImage?.image_url || product.images[0].image_url;
+  if (product.primary_image) {
+    return product.primary_image;
+  }
+  return '/images/placeholder-product.png';
 }

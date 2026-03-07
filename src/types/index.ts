@@ -65,6 +65,7 @@ export interface Product {
   price_striked?: number | string | null;
   is_preorder?: boolean;
   preorder_days?: number | null;
+  variations?: Array<{ name: string; options: string[]; option_prices?: Record<string, number>; option_stocks?: Record<string, number>; required?: boolean }>;
 }
 
 export interface ProductImage {
@@ -85,7 +86,9 @@ export interface Category {
 export type OrderStatus =
   | 'WAITING_PAYMENT'
   | 'PAID_ESCROW'
+  | 'PROCESSING'
   | 'SHIPPED'
+  | 'ARRIVED'
   | 'COMPLETED'
   | 'CANCELLED'
   | 'REFUND_REQUESTED'
@@ -98,7 +101,29 @@ export interface Order {
   seller_id: string;
   status: OrderStatus;
   total_amount: number;
+  payment_method?: string;
+  product_amount?: number;
+  voucher_discount_amount?: number;
+  delivery_fee?: number;
+  service_fee?: number;
+  payment_method_fee?: number;
   shipping_address: string;
+  courier?: string;
+  tracking_number?: string;
+  notes?: string;
+  buyer_note?: string;
+  // Snapshot fields (stored at order creation time)
+  buyer_name_snapshot?: string;
+  buyer_phone_snapshot?: string;
+  buyer_prodi_snapshot?: string;
+  buyer_nim_snapshot?: string;
+  seller_name_snapshot?: string;
+  seller_avatar_snapshot?: string;
+  // Flat JOIN fields returned by API
+  buyer_name?: string;
+  seller_name?: string;
+  seller_role?: string;
+  seller_avatar?: string;
   created_at: string;
   updated_at: string;
   // Relations
@@ -116,6 +141,8 @@ export interface OrderItem {
   price_snapshot: number;
   quantity: number;
   subtotal: number;
+  variations?: Record<string, string>;
+  product_image_url?: string;
   // Relations
   product?: Product;
 }

@@ -62,11 +62,7 @@ export default function RefundRequestsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Refund Requests</h1>
-        <p className="text-gray-600 mt-1">Review and process customer refund requests</p>
-      </div>
+
 
       {/* Stats */}
       <div className="grid gap-6 md:grid-cols-4">

@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useState, useEffect, useCallback, Suspense, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Product } from '@/types';
@@ -9,221 +9,407 @@ import { useAuth } from '@/hooks/useAuth';
 import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
 import { apiPost, apiGet } from '@/lib/api';
-import { MdLocalShipping, MdStoreMallDirectory, MdSell } from 'react-icons/md';
+import {
+  MdSell, MdCheck, MdClose,
+  MdCreditCard, MdAccountBalanceWallet, MdDeliveryDining,
+  MdPerson, MdPhone, MdSchool, MdLocationOn, MdBadge, MdMessage,
+  MdShoppingBag, MdInfoOutline, MdVerified,
+  MdWallet,
+} from 'react-icons/md';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 
-/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─────────────────────────── Types ─────────────────────────────── */
+
 type DeliveryMethod = 'pickup' | 'delivery';
-type SupportedBank = 'bca' | 'bni' | 'bri' | 'mandiri';
 
-interface CheckoutItem {
-  product: Product;
-  quantity: number;
-  variations?: Record<string, string>;
+type PaymentMethod =
+  | 'bca_va' | 'bni_va' | 'bri_va' | 'mandiri_va'
+  | 'permata_va' | 'cimb_va' | 'bsi_va'
+  | 'qris' | 'shopeepay' | 'gopay' | 'cod';
+
+interface CheckoutItem   { product: Product; quantity: number; variations?: Record<string, string>; }
+
+function getEffectivePrice(product: Product, variations?: Record<string, string>): number {
+  if (!variations || Object.keys(variations).length === 0 || !product.variations) return product.price;
+  return product.variations.reduce<number>((p, v) => {
+    const sel = variations[v.name];
+    const optPrice = sel ? (v.option_prices?.[sel] ?? 0) : 0;
+    return optPrice > 0 ? optPrice : p;
+  }, product.price);
 }
-
-interface WilayahItem { code: string; name: string; }
-
-interface VoucherData {
-  id: string;
-  code: string;
-  name: string;
-  discount_type: 'PERCENTAGE' | 'FIXED';
-  discount_value: number;
-  max_discount?: number;
+interface WilayahItem    { code: string; name: string; }
+interface VoucherData    {
+  id: string; code: string; name: string;
+  discount_type: 'PERCENTAGE' | 'FIXED'; discount_value: number;
+  max_discount?: number; min_purchase: number;
 }
-
 interface CheckoutResponse {
   order: { id: string; order_code: string; total_amount: number; original_amount: number; voucher_discount: number };
-  payment: { bank: string; va_number?: string; bill_key?: string; biller_code?: string; expiry_time?: string };
+  payment: { payment_method: string; va_number?: string; bill_key?: string; biller_code?: string;
+             expiry_time?: string; qr_string?: string; redirect_url?: string };
 }
 
-/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-const fmt = (n: number) =>
-  'Rp\u00a0' + Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+/* ─────────────────────────── Fee constants ─────────────────────── */
 
-const PICKUP_ADDRESS = 'Ruangan Senat Mahasiswa, Gedung Kampus STIKOM Yos Sudarso, Jl. Kendalsari No.20, Purwokerto, Banyumas â€“ Ambil sendiri di tempat';
+const SERVICE_FEE     = 2_000;
+const VA_FEE          = 4_440;
+const GOPAY_RATE      = 0.015;
+const QRIS_RATE       = 0.007;
+const SHOPEE_RATE     = 0.02;
 
-const BANK_CFG: Record<SupportedBank, { label: string; color: string; textColor: string }> = {
-  bca:    { label: 'BCA',    color: 'bg-blue-600',   textColor: 'text-white' },
-  bni:    { label: 'BNI',    color: 'bg-orange-500', textColor: 'text-white' },
-  bri:    { label: 'BRI',    color: 'bg-sky-600',    textColor: 'text-white' },
-  mandiri:{ label: 'Mandiri',color: 'bg-yellow-500', textColor: 'text-gray-900' },
+function getPaymentFee(method: PaymentMethod | null, base: number): number {
+  if (!method) return 0;
+  if (method.endsWith('_va'))   return VA_FEE;
+  if (method === 'gopay')       return Math.round(base * GOPAY_RATE);
+  if (method === 'qris')        return Math.round(base * QRIS_RATE);
+  if (method === 'shopeepay')   return Math.round(base * SHOPEE_RATE);
+  return 0; // COD
+}
+
+/* ─────────────────────────── Payment method config ─────────────── */
+
+interface MethodCfg {
+  label: string;
+  fullLabel: string;
+  imgPath: string;
+  fee: string;
+  category: 'bank_va' | 'ewallet' | 'cod';
+}
+
+const METHODS: Record<PaymentMethod, MethodCfg> = {
+  bca_va:     { label:'BCA',          fullLabel:'Bank Central Asia',      imgPath:'/images/payment-method/bank-transfer/bca.png',        fee:`+Rp 4.440`,  category:'bank_va' },
+  bni_va:     { label:'BNI',          fullLabel:'Bank Negara Indonesia',  imgPath:'/images/payment-method/bank-transfer/bni.png',        fee:`+Rp 4.440`,  category:'bank_va' },
+  bri_va:     { label:'BRI',          fullLabel:'Bank Rakyat Indonesia',  imgPath:'/images/payment-method/bank-transfer/bri.png',        fee:`+Rp 4.440`,  category:'bank_va' },
+  mandiri_va: { label:'Mandiri',      fullLabel:'Bank Mandiri',           imgPath:'/images/payment-method/bank-transfer/mandiri.png',    fee:`+Rp 4.440`,  category:'bank_va' },
+  permata_va: { label:'Permata',      fullLabel:'Bank Permata',           imgPath:'/images/payment-method/bank-transfer/permata.png',    fee:`+Rp 4.440`,  category:'bank_va' },
+  cimb_va:    { label:'CIMB Niaga',   fullLabel:'Bank CIMB Niaga',        imgPath:'/images/payment-method/bank-transfer/cimb-niaga.png', fee:`+Rp 4.440`,  category:'bank_va' },
+  bsi_va:     { label:'BSI',          fullLabel:'Bank Syariah Indonesia', imgPath:'/images/payment-method/bank-transfer/bsi.png',        fee:`+Rp 4.440`,  category:'bank_va' },
+  qris:       { label:'QRIS',         fullLabel:'QRIS',                   imgPath:'/images/payment-method/e-wallet/qris.png',            fee:`+0,7%`,      category:'ewallet' },
+  shopeepay:  { label:'ShopeePay',    fullLabel:'ShopeePay',              imgPath:'/images/payment-method/e-wallet/shopeepay.png',       fee:`+2%`,        category:'ewallet' },
+  gopay:      { label:'GoPay',        fullLabel:'GoPay',                  imgPath:'/images/payment-method/e-wallet/gopay.png',           fee:`+1,5%`,      category:'ewallet' },
+  cod:        { label:'COD',          fullLabel:'Bayar di Tempat (COD)',  imgPath:'/images/payment-method/cash-on-delivery/cod.png',     fee:'Gratis',     category:'cod' },
 };
 
-/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Copy button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+const BANK_VA_METHODS: PaymentMethod[]    = ['bca_va','bni_va','bri_va','mandiri_va','permata_va','cimb_va','bsi_va'];
+const EWALLET_METHODS: PaymentMethod[]    = ['qris','shopeepay','gopay'];
+
+/* ─────────────────────────── Helpers ───────────────────────────── */
+
+const fmt = (n: number) => 'Rp\u00a0' + Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+
+const PICKUP_ADDRESS = 'Ruangan Senat Mahasiswa, Kampus STIKOM Yos Sudarso, Jl. SMP 5, Windusara, Karangklesem, Kec. Purwokerto Sel., Kabupaten Banyumas';
+
+/* ─────────────────────────── Voucher Picker Modal ──────────────── */
+
+function VoucherModal({
+  onClose, onSelect, orderTotal, selected,
+}: {
+  onClose: () => void;
+  onSelect: (v: VoucherData | null, discount: number) => void;
+  orderTotal: number;
+  selected: VoucherData | null;
+}) {
+  const [vouchers, setVouchers]   = useState<VoucherData[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [manualCode, setManualCode] = useState('');
+  const [manualErr, setManualErr] = useState('');
+  const [manualLoading, setManualLoading] = useState(false);
+
+  useEffect(() => {
+    apiGet<{ success: boolean; data?: VoucherData[] }>(
+      `/orders/voucher/available?amount=${orderTotal}`
+    ).then(res => {
+      if (res.success && res.data) setVouchers(res.data);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, [orderTotal]);
+
+  const calcDiscount = (v: VoucherData) => {
+    if (v.discount_type === 'PERCENTAGE') {
+      const d = Math.round((orderTotal * v.discount_value) / 100);
+      return v.max_discount ? Math.min(d, v.max_discount) : d;
+    }
+    return Math.min(v.discount_value, orderTotal);
+  };
+
+  const handleManual = async () => {
+    if (!manualCode.trim()) return;
+    setManualLoading(true); setManualErr('');
+    try {
+      const res = await apiGet<{ success: boolean; data?: { voucher: VoucherData; discount_amount: number }; message?: string }>(
+        `/orders/voucher/validate?code=${encodeURIComponent(manualCode.trim())}&amount=${orderTotal}`
+      );
+      if (res.success && res.data) {
+        onSelect(res.data.voucher, res.data.discount_amount);
+        onClose();
+      } else { setManualErr(res.message || 'Kode voucher tidak valid'); }
+    } catch (e: any) { setManualErr(e.message || 'Kode voucher tidak valid'); }
+    finally { setManualLoading(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[80vh] flex flex-col shadow-2xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h3 className="text-base font-semibold text-gray-900">Pilih Voucher</h3>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100"><MdClose className="w-5 h-5 text-gray-500" /></button>
+        </div>
+
+        {/* Manual code input */}
+        <div className="px-5 pt-4 pb-3">
+          <div className="flex gap-2">
+            <input
+              value={manualCode}
+              onChange={e => { setManualCode(e.target.value.toUpperCase()); setManualErr(''); }}
+              onKeyDown={e => e.key === 'Enter' && handleManual()}
+              placeholder="Masukkan kode voucher manual"
+              className="flex-1 border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              type="button"
+              onClick={handleManual}
+              disabled={!manualCode.trim() || manualLoading}
+              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white rounded-xl text-sm font-semibold"
+            >
+              {manualLoading ? '...' : 'Pakai'}
+            </button>
+          </div>
+          {manualErr && <p className="text-xs text-red-600 mt-1.5">{manualErr}</p>}
+        </div>
+
+        <div className="overflow-y-auto flex-1 px-5 pb-5 space-y-2">
+          {loading && <p className="text-sm text-gray-400 text-center py-6">Memuat voucher...</p>}
+          {!loading && vouchers.length === 0 && (
+            <p className="text-sm text-gray-400 text-center py-6">Tidak ada voucher tersedia</p>
+          )}
+          {vouchers.map(v => {
+            const disc = calcDiscount(v);
+            const isSelected = selected?.id === v.id;
+            return (
+              <button
+                key={v.id}
+                type="button"
+                onClick={() => { onSelect(v, disc); onClose(); }}
+                className={`w-full text-left border-2 rounded-xl px-4 py-3.5 transition-all ${
+                  isSelected ? 'border-blue-600 bg-blue-50' : 'border-gray-200 hover:border-gray-300 bg-white'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">{v.name}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Kode: <span className="font-mono font-semibold text-blue-700">{v.code}</span>
+                      {v.min_purchase > 0 && ` · Min. ${fmt(v.min_purchase)}`}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-sm font-semibold text-green-600">-{fmt(disc)}</p>
+                    <p className="text-xs text-gray-400">
+                      {v.discount_type === 'PERCENTAGE'
+                        ? `${v.discount_value}%${v.max_discount ? ` maks ${fmt(v.max_discount)}` : ''}`
+                        : `Potongan ${fmt(v.discount_value)}`}
+                    </p>
+                  </div>
+                </div>
+                {isSelected && (
+                  <div className="flex items-center gap-1 mt-2 text-xs text-blue-700 font-semibold">
+                    <MdCheck className="w-3.5 h-3.5" /> Terpilih
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────── Role badge config ─────────────────── */
+
+const ROLE_BADGE: Record<string, { label: string; className: string }> = {
+  MAHASISWA:    { label: 'Mahasiswa',    className: 'bg-blue-100 text-blue-700' },
+  DOSEN:        { label: 'Dosen',        className: 'bg-green-100 text-green-700' },
+  KARYAWAN:     { label: 'Karyawan',     className: 'bg-orange-100 text-orange-700' },
+  UKM_OFFICIAL: { label: 'UKM Official', className: 'text-blue-600' },
+};
+
+/* ─────────────────────────── Section card ─────────────────────── */
+
+function SectionCard({ step, title, children, headerRight }: {
+  step: number; title: React.ReactNode; children: React.ReactNode; headerRight?: React.ReactNode;
+}) {
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+          <span className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-semibold shrink-0">{step}</span>
+          {title}
+        </h2>
+        {headerRight}
+      </div>
+      <div className="px-5 py-5">{children}</div>
+    </div>
+  );
+}
+
+/* ─────────────────────────── Main checkout ─────────────────────── */
 
 function CheckoutContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+  const router          = useRouter();
+  const searchParams    = useSearchParams();
   const { user, isLoggedIn, isLoading: authLoading } = useAuth();
 
-  /* â”€â”€ Items â”€â”€ */
-  const [items, setItems] = useState<CheckoutItem[]>([]);
+  /* Items */
+  const [items, setItems]     = useState<CheckoutItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
+  const [submitting, setSubmitting]   = useState(false);
+  const [error, setError]     = useState('');
 
-  /* â”€â”€ Delivery â”€â”€ */
-  const [deliveryMethod, setDeliveryMethod] = useState<DeliveryMethod>('pickup');
+  /* Payment */
+  const [paymentMethod, setPaymentMethod]   = useState<PaymentMethod>('cod');
+  const [paymentPanelOpen, setPaymentPanelOpen] = useState(false);
+  const [openAccordion, setOpenAccordion]   = useState<string>('cod');
+  const panelARef = useRef<HTMLDivElement>(null);
+  const panelBRef = useRef<HTMLDivElement>(null);
+  const [payContainerH, setPayContainerH]   = useState<number | undefined>(undefined);
 
-  /* â”€â”€ Address form (only relevant when delivery) â”€â”€ */
-  const [receiverName, setReceiverName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [addressLine, setAddressLine] = useState('');
-  const [kecamatanCode, setKecamatanCode] = useState('');
-  const [kecamatanName, setKecamatanName] = useState('');
-  const [villageCode, setVillageCode] = useState('');
-  const [villageName, setVillageName] = useState('');
-  const [postalCode, setPostalCode] = useState('');
-
-  const [kecamatanList, setKecamatanList] = useState<WilayahItem[]>([]);
-  const [villageList, setVillageList] = useState<WilayahItem[]>([]);
-  const [kecamatanLoading, setKecamatanLoading] = useState(false);
-  const [villageLoading, setVillageLoading] = useState(false);
-
-  /* â”€â”€ Bank â”€â”€ */
-  const [selectedBank, setSelectedBank] = useState<SupportedBank>('bca');
-
-  /* â”€â”€ Voucher â”€â”€ */
-  const [voucherInput, setVoucherInput] = useState('');
+  /* Voucher */
   const [voucherApplied, setVoucherApplied] = useState<VoucherData | null>(null);
   const [voucherDiscount, setVoucherDiscount] = useState(0);
-  const [voucherLoading, setVoucherLoading] = useState(false);
-  const [voucherError, setVoucherError] = useState('');
+  const [showVoucherModal, setShowVoucherModal] = useState(false);
 
-  /* â”€â”€ Load product from params â”€â”€ */
+  /* Buyer info (editable) */
+  const [editedName, setEditedName]   = useState('');
+  const [editedPhone, setEditedPhone] = useState('');
+  const [editedProdi, setEditedProdi] = useState('');
+  const [editedNim, setEditedNim]     = useState('');
+
+  /* Note to seller */
+  const [buyerNote, setBuyerNote] = useState('');
+
+  /* ── Load products ── */
   useEffect(() => {
-    const fetchProduct = async () => {
-      const productId = searchParams.get('product');
-      const qty = parseInt(searchParams.get('qty') || '1', 10);
-      const variationsParam = searchParams.get('variations');
+    const fetchItems = async () => {
+      const source = searchParams.get('source');
 
-      if (!productId) { setError('Tidak ada produk yang dipilih'); setLoading(false); return; }
-
-      try {
-        const product = await getProduct(productId);
-        const variations = variationsParam ? JSON.parse(decodeURIComponent(variationsParam)) : undefined;
-        setItems([{ product, quantity: qty, variations }]);
-      } catch (err) {
-        setError('Gagal memuat produk');
-        console.error(err);
-      } finally {
-        setLoading(false);
+      if (source === 'cart') {
+        // Multiple items from cart, passed via sessionStorage
+        const raw = sessionStorage.getItem('checkout_items');
+        if (!raw) { setError('Tidak ada produk yang dipilih'); setLoading(false); return; }
+        let cartItems: { productId: string; quantity: number; variations?: Record<string, string> }[] = [];
+        try { cartItems = JSON.parse(raw); } catch { setError('Data keranjang tidak valid'); setLoading(false); return; }
+        if (cartItems.length === 0) { setError('Tidak ada produk yang dipilih'); setLoading(false); return; }
+        try {
+          const fetched = await Promise.all(
+            cartItems.map(async ci => {
+              const product = await getProduct(ci.productId);
+              return { product, quantity: Math.max(1, ci.quantity), variations: ci.variations };
+            })
+          );
+          setItems(fetched);
+        } catch { setError('Gagal memuat produk'); }
+        finally  { setLoading(false); }
+      } else {
+        // Single product flow (from product detail page)
+        const productId = searchParams.get('product');
+        const qty       = parseInt(searchParams.get('qty') || '1', 10);
+        const varParam  = searchParams.get('variations');
+        if (!productId) { setError('Tidak ada produk yang dipilih'); setLoading(false); return; }
+        try {
+          const product    = await getProduct(productId);
+          const variations = varParam ? JSON.parse(decodeURIComponent(varParam)) : undefined;
+          setItems([{ product, quantity: qty, variations }]);
+        } catch { setError('Gagal memuat produk'); }
+        finally  { setLoading(false); }
       }
     };
-    fetchProduct();
+    fetchItems();
   }, [searchParams]);
 
-  /* â”€â”€ Pre-fill user name â”€â”€ */
-  useEffect(() => {
-    if (user?.full_name) setReceiverName(user.full_name);
-  }, [user]);
-
-  /* â”€â”€ Auth guards â”€â”€ */
   useEffect(() => {
     if (!authLoading && !isLoggedIn) router.push('/login?redirect=' + encodeURIComponent('/checkout'));
   }, [authLoading, isLoggedIn, router]);
 
   useEffect(() => {
     if (!authLoading && user && ['ADMIN', 'UKM_OFFICIAL'].includes(user.role)) {
-      alert(user.role === 'ADMIN' ? 'Admin tidak dapat melakukan pembelian' : 'Akun UKM tidak dapat melakukan pembelian');
       router.push('/');
     }
   }, [authLoading, user, router]);
 
-  /* â”€â”€ Load kecamatan (Banyumas) â”€â”€ */
+  /* ── Measure payment panel height for dynamic container ── */
   useEffect(() => {
-    setKecamatanLoading(true);
-    fetch('/api/wilayah?path=districts/33.02')
-      .then(r => r.json())
-      .then(data => setKecamatanList(data.data ?? []))
-      .catch(console.error)
-      .finally(() => setKecamatanLoading(false));
+    const measure = () => {
+      const el = paymentPanelOpen ? panelBRef.current : panelARef.current;
+      if (el) setPayContainerH(el.offsetHeight);
+    };
+    measure();
+    const t = setTimeout(measure, 350);
+    return () => clearTimeout(t);
+  }, [paymentPanelOpen, openAccordion]);
+
+  /* ── Pre-fill buyer info from user profile ── */
+  useEffect(() => {
+    if (user) {
+      setEditedName((user as any).full_name || '');
+      setEditedPhone((user as any).phone || (user as any).phone_number || '');
+      setEditedProdi((user as any).program_studi || '');
+      setEditedNim((user as any).nim || '');
+    }
+  }, [user]);
+
+  /* ── Fee calculation ── */
+  const subtotal          = items.reduce((s, i) => s + getEffectivePrice(i.product, i.variations) * i.quantity, 0);
+  const afterVoucher      = Math.max(0, subtotal - voucherDiscount);
+  const baseForFee        = afterVoucher + SERVICE_FEE;   // produk + biaya layanan sebagai dasar perhitungan %
+  const paymentFee        = getPaymentFee(paymentMethod, baseForFee);
+  const grandTotal        = baseForFee + paymentFee;
+
+  const handleVoucherSelect = useCallback((v: VoucherData | null, discount: number) => {
+    setVoucherApplied(v);
+    setVoucherDiscount(v ? discount : 0);
   }, []);
 
-  /* â”€â”€ Load villages when kecamatan changes â”€â”€ */
-  useEffect(() => {
-    if (!kecamatanCode) { setVillageList([]); return; }
-    setVillageLoading(true);
-    setVillageCode(''); setVillageName('');
-    fetch(`/api/wilayah?path=villages/${encodeURIComponent(kecamatanCode)}`)
-      .then(r => r.json())
-      .then(data => setVillageList(data.data ?? []))
-      .catch(console.error)
-      .finally(() => setVillageLoading(false));
-  }, [kecamatanCode]);
-
-  /* â”€â”€ Derived â”€â”€ */
-  const totalAmount = items.reduce((s, i) => s + i.product.price * i.quantity, 0);
-  const finalAmount = Math.max(0, totalAmount - voucherDiscount);
-
-  /* â”€â”€ Voucher validation â”€â”€ */
-  const handleValidateVoucher = useCallback(async () => {
-    if (!voucherInput.trim()) return;
-    setVoucherLoading(true);
-    setVoucherError('');
-    try {
-      const res = await apiGet<{ success: boolean; data?: { voucher: VoucherData; discount_amount: number; final_amount: number }; message?: string }>(
-        `/orders/voucher/validate?code=${encodeURIComponent(voucherInput.trim())}&amount=${totalAmount}`
-      );
-      if (res.success && res.data) {
-        setVoucherApplied(res.data.voucher);
-        setVoucherDiscount(res.data.discount_amount);
-      } else {
-        setVoucherError(res.message || 'Kode voucher tidak valid');
-      }
-    } catch (err: unknown) {
-      setVoucherError(err instanceof Error ? err.message : 'Kode voucher tidak valid');
-    } finally {
-      setVoucherLoading(false);
-    }
-  }, [voucherInput, totalAmount]);
-
-  const clearVoucher = () => {
-    setVoucherInput('');
-    setVoucherApplied(null);
-    setVoucherDiscount(0);
-    setVoucherError('');
+  /* ── Quantity adjustment ── */
+  const updateItemQty = (itemKey: string, newQty: number) => {
+    setItems(prev => prev.map(i =>
+      makeItemKey(i.product.id, i.variations) === itemKey
+        ? { ...i, quantity: Math.max(1, Math.min(newQty, i.product.stock ?? 99)) }
+        : i
+    ));
   };
 
-  /* â”€â”€ Submit â”€â”€ */
+  const makeItemKey = (productId: string, variations?: Record<string, string>) => {
+    if (!variations || Object.keys(variations).length === 0) return productId;
+    const sorted = Object.fromEntries(Object.entries(variations).sort(([a], [b]) => a.localeCompare(b)));
+    return `${productId}::${JSON.stringify(sorted)}`;
+  };
+
+  /* ── Submit ── */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    if (deliveryMethod === 'delivery') {
-      if (!receiverName || !phone || !addressLine) {
-        setError('Harap lengkapi nama, nomor telepon, dan alamat');
-        return;
-      }
-      if (!kecamatanCode) { setError('Pilih kecamatan terlebih dahulu'); return; }
-    }
-
+    if (!paymentMethod) { setError('Pilih metode pembayaran terlebih dahulu'); return; }
     if (items.length === 0) { setError('Tidak ada produk yang dipilih'); return; }
 
     setSubmitting(true);
     try {
-      let shippingAddress: string;
-      if (deliveryMethod === 'pickup') {
-        shippingAddress = PICKUP_ADDRESS;
-      } else {
-        const parts = [
-          receiverName,
-          phone,
-          addressLine,
-          villageName ? `${villageName}, ${kecamatanName}` : kecamatanName,
-          'Kabupaten Banyumas, Jawa Tengah',
-          postalCode,
-        ].filter(Boolean);
-        shippingAddress = parts.join(', ');
-      }
-
       const payload = {
-        seller_id: items[0].product.seller_id,
-        items: items.map(i => ({ product_id: i.product.id, quantity: i.quantity })),
-        shipping_address: shippingAddress,
-        delivery_method: deliveryMethod,
-        bank: selectedBank,
+        seller_id:        items[0].product.seller_id,
+        items:            items.map(i => ({
+          product_id: i.product.id,
+          quantity:   i.quantity,
+          ...(i.variations && Object.keys(i.variations).length > 0 ? { variations: i.variations } : {}),
+        })),
+        shipping_address: PICKUP_ADDRESS,
+        delivery_method:  'pickup',
+        payment_method:   paymentMethod,
+        buyer_name:       editedName  || undefined,
+        buyer_phone:      editedPhone || undefined,
+        buyer_prodi:      editedProdi || undefined,
+        buyer_nim:        editedNim   || undefined,
+        buyer_note:       buyerNote   || undefined,
         ...(voucherApplied ? { voucher_code: voucherApplied.code } : {}),
       };
 
@@ -232,7 +418,6 @@ function CheckoutContent() {
       );
 
       if (response.success && response.data) {
-        // Redirect to dedicated payment page (survives refresh, has real-time polling)
         router.push(`/orders/${response.data.order.id}/payment`);
       } else {
         setError(response.message || 'Gagal membuat pesanan');
@@ -244,8 +429,7 @@ function CheckoutContent() {
     }
   };
 
-
-  /* â”€â”€ Loading skeleton â”€â”€ */
+  /* ── Skeletons ── */
   if (authLoading || loading) {
     return (
       <div className="min-h-screen flex flex-col bg-slate-50">
@@ -266,16 +450,15 @@ function CheckoutContent() {
     );
   }
 
-  /* â”€â”€ Error (no items) â”€â”€ */
   if (error && items.length === 0) {
     return (
       <div className="min-h-screen flex flex-col bg-slate-50">
         <Navbar />
         <main className="flex-1 flex items-center justify-center px-4">
           <div className="text-center py-16">
-            <div className="text-5xl mb-4">ðŸ˜•</div>
+            <div className="text-5xl mb-4">😕</div>
             <h2 className="text-xl font-semibold text-gray-900 mb-2">Checkout Gagal</h2>
-            <p className="mt-2 text-gray-500 text-sm">{error}</p>
+            <p className="text-sm text-gray-500">{error}</p>
             <Link href="/products" className="inline-block mt-6 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
               Lihat Produk
             </Link>
@@ -286,304 +469,371 @@ function CheckoutContent() {
     );
   }
 
-  const inputCls = 'w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white placeholder:text-gray-400';
+  const inputCls = 'w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white placeholder:text-gray-400';
   const labelCls = 'block text-xs font-semibold text-gray-500 mb-1.5 uppercase tracking-wide';
-  const selectCls = inputCls + ' bg-white cursor-pointer';
+
+  const seller = items[0]?.product;
+  const sellerRole = (seller as any)?.seller_role ?? '';
+  const roleBadge = ROLE_BADGE[sellerRole];
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50">
       <Navbar />
+      {showVoucherModal && (
+        <VoucherModal
+          onClose={() => setShowVoucherModal(false)}
+          onSelect={handleVoucherSelect}
+          orderTotal={subtotal}
+          selected={voucherApplied}
+        />
+      )}
 
       <main className="flex-1 py-8">
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
-
-          {/* Error banner */}
           {error && (
             <div className="flex items-start gap-3 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3.5 text-sm mb-6">
-              <span className="shrink-0 text-base mt-0.5">âš </span>
-              <span>{error}</span>
+              <span className="shrink-0 mt-0.5">⚠</span>{error}
             </div>
           )}
 
           <form onSubmit={handleSubmit}>
             <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-6">
 
-              {/* â”€â”€ LEFT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+              {/* ── LEFT ────────────────────────────────────── */}
               <div className="space-y-5">
 
-                {/* Step 1: Produk */}
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                  <div className="px-5 py-4 border-b border-gray-50">
-                    <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
-                      <span className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-semibold shrink-0">1</span>
-                      Produk yang Dibeli
-                    </h2>
+                {/* ── Section 1: Data Diri ── */}
+                <SectionCard step={1} title="Data Diri">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className={labelCls}>Nama Lengkap</label>
+                      <input
+                        value={editedName}
+                        onChange={e => setEditedName(e.target.value)}
+                        placeholder="Nama lengkap"
+                        className={inputCls}
+                      />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Nomor HP</label>
+                      <input
+                        value={editedPhone}
+                        onChange={e => setEditedPhone(e.target.value)}
+                        placeholder="08xxxxxxxxxx"
+                        className={inputCls}
+                      />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Program Studi</label>
+                      <input
+                        value={editedProdi}
+                        onChange={e => setEditedProdi(e.target.value)}
+                        placeholder="Program studi"
+                        className={inputCls}
+                      />
+                    </div>
+                    {user?.role === 'MAHASISWA' && (
+                      <div>
+                        <label className={labelCls}>NIM</label>
+                        <input
+                          value={editedNim}
+                          onChange={e => setEditedNim(e.target.value)}
+                          placeholder="Nomor Induk Mahasiswa"
+                          className={inputCls}
+                        />
+                      </div>
+                    )}
                   </div>
-                  <div className="divide-y divide-gray-50">
-                    {items.map((item) => (
-                      <div key={item.product.id} className="px-5 py-4">
-                        <div className="flex gap-4 items-start">
-                          <img
-                            src={getPrimaryImage(item.product)}
-                            alt={item.product.title}
-                            className="w-[72px] h-[72px] object-cover rounded-xl border border-gray-100 shrink-0"
-                            onError={(e) => { (e.target as HTMLImageElement).src = '/images/placeholder-product.svg'; }}
-                          />
-                          <div className="flex-1 min-w-0">
-                            <h3 className="font-semibold text-gray-900 text-sm leading-snug line-clamp-2">{item.product.title}</h3>
-                            {item.variations && Object.keys(item.variations).length > 0 && (
-                              <div className="flex flex-wrap gap-1.5 mt-1.5">
-                                {Object.entries(item.variations).map(([k, v]) => (
-                                  <span key={k} className="text-xs bg-gray-100 text-gray-600 rounded-lg px-2 py-0.5">{k}: {v}</span>
-                                ))}
-                              </div>
-                            )}
-                            <p className="text-xs text-gray-500 mt-1">{item.quantity} barang</p>
-                            <p className="text-sm font-semibold text-blue-600 mt-1">{formatPrice(item.product.price * item.quantity)}</p>
-                          </div>
-                          <div className="shrink-0 text-right">
-                            <p className="text-xs text-gray-400">{formatPrice(item.product.price)} / barang</p>
+                </SectionCard>
+
+                {/* ── Section 2: Produk yang Dibeli ── */}
+                <SectionCard step={2} title="Produk yang Dibeli">
+                  {/* Seller header */}
+                  {seller && (
+                    <div className="-mx-5 -mt-5 mb-0 px-5 py-3.5 bg-gray-50 border-b border-gray-100 flex items-center gap-3">
+                      <Link
+                        href={`/${(seller as any).seller_username ?? (seller as any).seller_id}`}
+                        className="flex items-center gap-3 flex-1 min-w-0 group"
+                      >
+                        <div className="w-9 h-9 rounded-full bg-blue-100 overflow-hidden shrink-0 ring-2 ring-white">
+                          {(seller as any).seller_avatar ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={(seller as any).seller_avatar} alt={(seller as any).seller_name ?? 'Seller'} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-blue-600 font-bold text-sm">
+                              {((seller as any).seller_name ?? 'S')[0].toUpperCase()}
+                            </div>
+                          )}
+                        </div>
+                        <div className="min-w-0 flex items-center gap-1.5 flex-wrap">
+                          <p className="text-sm font-semibold text-gray-900 group-hover:text-blue-600 transition-colors truncate">
+                            {(seller as any).seller_name ?? 'Penjual'}
+                          </p>
+                          {roleBadge && (
+                            sellerRole === 'UKM_OFFICIAL' ? (
+                              <span className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-blue-600 shrink-0">
+                                <MdVerified className="w-3.5 h-3.5" />
+                                {roleBadge.label}
+                              </span>
+                            ) : (
+                              <span className={`inline-flex items-center text-[11px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${roleBadge.className}`}>
+                                {roleBadge.label}
+                              </span>
+                            )
+                          )}
+                        </div>
+                      </Link>
+                    </div>
+                  )}
+
+                  {/* Items list */}
+                  <div className="divide-y divide-gray-50 -mx-5">
+                    {items.map(item => (
+                      <div key={makeItemKey(item.product.id, item.variations)} className="px-5 py-4 flex gap-4 items-start">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={getPrimaryImage(item.product)} alt={item.product.title}
+                          className="w-[72px] h-[72px] object-cover rounded-xl border border-gray-100 shrink-0"
+                          onError={e => { (e.target as HTMLImageElement).src = '/images/placeholder-product.svg'; }} />
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold text-gray-900 text-sm leading-snug line-clamp-2">{item.product.title}</h3>
+                          {item.variations && Object.keys(item.variations).length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 mt-1.5">
+                              {Object.entries(item.variations).map(([k, v]) => (
+                                <span key={k} className="text-xs bg-gray-100 text-gray-600 rounded-lg px-2 py-0.5">{k}: {v}</span>
+                              ))}
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2 mt-2">
+                            <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden">
+                              <button type="button"
+                                onClick={() => updateItemQty(makeItemKey(item.product.id, item.variations), item.quantity - 1)}
+                                disabled={item.quantity <= 1}
+                                className="w-7 h-7 flex items-center justify-center text-gray-500 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-base font-bold">−</button>
+                              <span className="px-3 text-sm font-semibold text-gray-900 min-w-[2.25rem] text-center">{item.quantity}</span>
+                              <button type="button"
+                                onClick={() => updateItemQty(makeItemKey(item.product.id, item.variations), item.quantity + 1)}
+                                disabled={item.quantity >= (item.product.stock ?? 99)}
+                                className="w-7 h-7 flex items-center justify-center text-gray-500 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-base font-bold">+</button>
+                            </div>
+                            <span className="text-xs text-gray-500">× {formatPrice(getEffectivePrice(item.product, item.variations))}</span>
                           </div>
                         </div>
+                        <span className="text-sm text-gray-600 shrink-0">{formatPrice(getEffectivePrice(item.product, item.variations) * item.quantity)}</span>
                       </div>
                     ))}
                   </div>
-                </div>
 
-                {/* Step 2: Pengiriman */}
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                  <div className="px-5 py-4 border-b border-gray-50">
-                    <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
-                      <span className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-semibold shrink-0">2</span>
-                      Metode Pengiriman
-                    </h2>
+                  {/* Note to seller */}
+                  <div className="mt-4 pt-4 border-t border-gray-50">
+                    <label className={labelCls}>Pesan untuk Penjual</label>
+                    <textarea
+                      value={buyerNote}
+                      onChange={e => setBuyerNote(e.target.value)}
+                      placeholder="Tinggalkan pesan untuk penjual"
+                      rows={3}
+                      className={inputCls + ' resize-none'}
+                    />
                   </div>
-                  <div className="px-5 py-5">
-                    {/* Toggle */}
-                    <div className="flex gap-3 mb-5">
-                      <button
-                        type="button"
-                        onClick={() => setDeliveryMethod('pickup')}
-                        className={`flex-1 flex flex-col items-center gap-1.5 rounded-xl py-3.5 border-2 text-sm font-semibold transition-all ${
-                          deliveryMethod === 'pickup'
-                            ? 'border-blue-600 bg-blue-50 text-blue-700'
-                            : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'
-                        }`}
-                      >
-                        <MdStoreMallDirectory className="w-5 h-5" />
-                        Pick Up
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDeliveryMethod('delivery')}
-                        className={`flex-1 flex flex-col items-center gap-1.5 rounded-xl py-3.5 border-2 text-sm font-semibold transition-all ${
-                          deliveryMethod === 'delivery'
-                            ? 'border-blue-600 bg-blue-50 text-blue-700'
-                            : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'
-                        }`}
-                      >
-                        <MdLocalShipping className="w-5 h-5" />
-                        Delivery
-                      </button>
+                </SectionCard>
+
+                {/* ── Section 3: Pengambilan Pesanan ── */}
+                <SectionCard
+                  step={3}
+                  title="Pengambilan Pesanan"
+                  headerRight={
+                    <Link href="/panduan-pengambilan" className="text-xs text-blue-600 hover:text-blue-700 font-semibold transition-colors whitespace-nowrap">
+                      Lihat Panduan &rsaquo;
+                    </Link>
+                  }
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="w-11 h-11 flex items-center justify-center shrink-0">
+                      <MdLocationOn className="w-6 h-6 text-red-500" />
                     </div>
-
-                    {/* Pickup info */}
-                    {deliveryMethod === 'pickup' && (
-                      <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
-                        <p className="text-xs font-semibold text-blue-700 mb-1.5 uppercase tracking-wide">Lokasi Pengambilan</p>
-                        <p className="text-sm text-blue-800 leading-relaxed font-semibold">Ruangan Senat Mahasiswa</p>
-                        <p className="text-sm text-blue-700 leading-relaxed">Gedung Kampus STIKOM Yos Sudarso</p>
-                        <p className="text-sm text-blue-700 leading-relaxed">Jl. Kendalsari No.20, Purwokerto, Banyumas</p>
-                        <p className="text-xs text-blue-500 mt-2">Ambil sendiri sesuai jadwal yang disepakati dengan penjual</p>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-900">Ruangan Senat Mahasiswa</p>
+                      <p className="text-sm text-gray-500 mt-0.5">Kampus STIKOM Yos Sudarso</p>
+                      <p className="text-xs text-gray-400 mt-1 leading-relaxed">
+                        Jl. SMP 5, Windusara, Karangklesem, Kec. Purwokerto Sel., Kabupaten Banyumas
+                      </p>
+                      <div className="flex items-center gap-1.5 mt-2.5 text-xs text-gray-500">
+                        <MdInfoOutline className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                        <span>Barang siap diambil setelah barang berada di lokasi pengambilan</span>
                       </div>
-                    )}
-
-                    {/* Delivery form */}
-                    {deliveryMethod === 'delivery' && (
-                      <div className="space-y-4">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <div>
-                            <label className={labelCls}>Nama Penerima <span className="text-red-400 normal-case tracking-normal">*</span></label>
-                            <input
-                              value={receiverName}
-                              onChange={e => setReceiverName(e.target.value)}
-                              placeholder="Nama lengkap penerima"
-                              required={deliveryMethod === 'delivery'}
-                              className={inputCls}
-                            />
-                          </div>
-                          <div>
-                            <label className={labelCls}>No. Telepon <span className="text-red-400 normal-case tracking-normal">*</span></label>
-                            <input
-                              type="tel"
-                              value={phone}
-                              onChange={e => setPhone(e.target.value)}
-                              placeholder="08xxxxxxxxxx"
-                              required={deliveryMethod === 'delivery'}
-                              className={inputCls}
-                            />
-                          </div>
-                        </div>
-                        <div>
-                          <label className={labelCls}>Alamat Lengkap <span className="text-red-400 normal-case tracking-normal">*</span></label>
-                          <textarea
-                            value={addressLine}
-                            onChange={e => setAddressLine(e.target.value)}
-                            rows={2}
-                            placeholder="Nama jalan, nomor, RT/RW"
-                            required={deliveryMethod === 'delivery'}
-                            className="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white resize-none placeholder:text-gray-400"
-                          />
-                        </div>
-                        {/* Fixed: Jawa Tengah, Kabupaten Banyumas */}
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className={labelCls}>Provinsi</label>
-                            <input value="Jawa Tengah" disabled className={inputCls + ' bg-gray-50 text-gray-500 cursor-not-allowed'} />
-                          </div>
-                          <div>
-                            <label className={labelCls}>Kabupaten/Kota</label>
-                            <input value="Kabupaten Banyumas" disabled className={inputCls + ' bg-gray-50 text-gray-500 cursor-not-allowed'} />
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <div>
-                            <label className={labelCls}>Kecamatan <span className="text-red-400 normal-case tracking-normal">*</span></label>
-                            <select
-                              value={kecamatanCode}
-                              onChange={e => {
-                                const opt = kecamatanList.find(k => k.code === e.target.value);
-                                setKecamatanCode(e.target.value);
-                                setKecamatanName(opt?.name ?? '');
-                              }}
-                              required={deliveryMethod === 'delivery'}
-                              className={selectCls}
-                            >
-                              <option value="">{kecamatanLoading ? 'Memuat...' : 'Pilih kecamatan'}</option>
-                              {kecamatanList.map(k => (
-                                <option key={k.code} value={k.code}>{k.name}</option>
-                              ))}
-                            </select>
-                          </div>
-                          <div>
-                            <label className={labelCls}>Kelurahan/Desa</label>
-                            <select
-                              value={villageCode}
-                              onChange={e => {
-                                const opt = villageList.find(v => v.code === e.target.value);
-                                setVillageCode(e.target.value);
-                                setVillageName(opt?.name ?? '');
-                              }}
-                              disabled={!kecamatanCode || villageLoading}
-                              className={selectCls + (!kecamatanCode ? ' bg-gray-50 text-gray-400 cursor-not-allowed opacity-60' : '')}
-                            >
-                              <option value="">{villageLoading ? 'Memuat...' : 'Pilih kelurahan/desa'}</option>
-                              {villageList.map(v => (
-                                <option key={v.code} value={v.code}>{v.name}</option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-                        <div className="w-40">
-                          <label className={labelCls}>Kode Pos</label>
-                          <input
-                            value={postalCode}
-                            onChange={e => setPostalCode(e.target.value)}
-                            placeholder="12345"
-                            maxLength={5}
-                            className={inputCls}
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Step 3: Metode Pembayaran */}
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                  <div className="px-5 py-4 border-b border-gray-50">
-                    <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
-                      <span className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-semibold shrink-0">3</span>
-                      Metode Pembayaran
-                    </h2>
-                  </div>
-                  <div className="px-5 py-5">
-                    <p className="text-xs text-gray-500 mb-3">Pilih bank untuk Transfer Virtual Account</p>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      {(Object.keys(BANK_CFG) as SupportedBank[]).map(bank => {
-                        const cfg = BANK_CFG[bank];
-                        const selected = selectedBank === bank;
-                        return (
-                          <button
-                            key={bank}
-                            type="button"
-                            onClick={() => setSelectedBank(bank)}
-                            className={`py-3 rounded-xl text-sm font-semibold transition-all border-2 ${
-                              selected
-                                ? `${cfg.color} ${cfg.textColor} border-transparent shadow-sm`
-                                : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
-                            }`}
-                          >
-                            {cfg.label}
-                          </button>
-                        );
-                      })}
                     </div>
-                    <p className="text-xs text-gray-400 mt-3">
-                      Nomor Virtual Account akan dikirim setelah order dibuat
-                    </p>
                   </div>
-                </div>
+                </SectionCard>
 
-                {/* Step 4: Voucher */}
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                  <div className="px-5 py-4 border-b border-gray-50">
-                    <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
-                      <span className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-semibold shrink-0">4</span>
-                      <MdSell className="w-4 h-4 text-blue-600" />
-                      Voucher & Diskon
-                    </h2>
-                  </div>
-                  <div className="px-5 py-5">
-                    {voucherApplied ? (
-                      <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-xl px-4 py-3">
-                        <div>
-                          <p className="text-sm font-semibold text-green-700">{voucherApplied.code}</p>
-                          <p className="text-xs text-green-600">{voucherApplied.name} â€“ hemat {fmt(voucherDiscount)}</p>
+                {/* ── Section 4: Voucher ── */}
+                <SectionCard step={4} title={<span className="flex items-center gap-1.5">Voucher & Diskon</span>}>
+                  {voucherApplied ? (
+                    <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+                      <div>
+                        <p className="text-sm font-semibold text-green-700">{voucherApplied.code}</p>
+                        <p className="text-xs text-green-600">{voucherApplied.name} – hemat {fmt(voucherDiscount)}</p>
+                      </div>
+                      <button type="button" onClick={() => { setVoucherApplied(null); setVoucherDiscount(0); }}
+                        className="text-xs text-gray-500 hover:text-red-600 transition-colors ml-4">Hapus</button>
+                    </div>
+                  ) : (
+                    <button type="button" onClick={() => setShowVoucherModal(true)}
+                      className="w-full flex items-center justify-between border-2 border-dashed border-gray-200 hover:border-blue-400 rounded-xl px-4 py-3.5 text-sm text-gray-500 hover:text-blue-700 transition-all">
+                      <span className="flex items-center gap-2"><MdSell className="w-4 h-4" />Pilih atau masukkan voucher</span>
+                      <span className="text-xs text-blue-500 font-semibold">Lihat Voucher &rsaquo;</span>
+                    </button>
+                  )}
+                </SectionCard>
+
+                {/* ── Section 5: Metode Pembayaran ── */}
+                <SectionCard
+                  step={5}
+                  title={<span className="flex items-center gap-1.5">Metode Pembayaran</span>}
+                  headerRight={
+                    !paymentPanelOpen ? (
+                      <button type="button" onClick={() => setPaymentPanelOpen(true)}
+                        className="text-xs text-blue-600 hover:text-blue-700 font-semibold transition-colors whitespace-nowrap">
+                        Lihat Semua &rsaquo;
+                      </button>
+                    ) : undefined
+                  }
+                >
+                  {/* Slide container */}
+                  <div
+                    className="overflow-hidden -mx-5 -my-5"
+                    style={{ height: payContainerH !== undefined ? `${payContainerH}px` : undefined, transition: 'height 300ms ease-in-out' }}
+                  >
+                    <div
+                      className="flex transition-transform duration-300 ease-in-out"
+                      style={{ transform: paymentPanelOpen ? 'translateX(-50%)' : 'translateX(0)', width: '200%' }}
+                    >
+                      {/* Panel A – compact default view */}
+                      <div ref={panelARef} className="w-1/2 px-5 py-5">
+                        <div
+                          className="flex items-center gap-3 border-2 border-blue-500 bg-blue-50 rounded-xl px-4 py-3.5 cursor-pointer"
+                          onClick={() => setPaymentPanelOpen(true)}
+                        >
+                          <div className="w-10 h-7 shrink-0 flex items-center justify-center">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={METHODS[paymentMethod].imgPath} alt={METHODS[paymentMethod].label} className="max-w-full max-h-full object-contain" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-blue-700">{METHODS[paymentMethod].fullLabel}</p>
+                            <p className="text-xs text-blue-500">
+                              {METHODS[paymentMethod].fee === 'Gratis' ? 'Tanpa biaya tambahan' : `Biaya: ${METHODS[paymentMethod].fee}`}
+                            </p>
+                          </div>
+                          <MdCheck className="w-5 h-5 text-blue-600 shrink-0" />
                         </div>
-                        <button type="button" onClick={clearVoucher} className="text-xs text-gray-500 hover:text-red-600 transition-colors ml-4">
-                          Hapus
+                        <p className="text-xs text-gray-400 mt-3 text-center">
+                          Klik <span className="font-semibold text-blue-500">Lihat Semua</span> di atas untuk mengganti metode pembayaran
+                        </p>
+                      </div>
+
+                      {/* Panel B – full accordion */}
+                      <div ref={panelBRef} className="w-1/2 px-5 py-5">
+                        <Accordion type="single" collapsible value={openAccordion} onValueChange={v => setOpenAccordion(v)} className="space-y-2">
+                          {/* Bank VA */}
+                          <AccordionItem value="bank_va" className="border border-gray-200 rounded-xl overflow-hidden">
+                            <AccordionTrigger className="px-4 py-3.5 hover:bg-gray-50 text-xs font-semibold text-gray-800 [&>svg]:text-gray-400 hover:no-underline">
+                              <span className="flex items-center gap-2">
+                                <MdWallet className="w-4 h-4 text-gray-500" />
+                                Bank Transfer Virtual Account
+                              </span>
+                            </AccordionTrigger>
+                            <AccordionContent className="pb-0">
+                              <div className="divide-y divide-gray-50">
+                                {BANK_VA_METHODS.map(m => {
+                                  const cfg = METHODS[m];
+                                  const isSel = paymentMethod === m;
+                                  return (
+                                    <button key={m} type="button" onClick={() => setPaymentMethod(m)}
+                                      className={`w-full flex items-center gap-3 px-4 py-3 transition-colors ${isSel ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
+                                      <div className="w-10 h-6 shrink-0 flex items-center">
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img src={cfg.imgPath} alt={cfg.label} className="w-full h-full object-contain" />
+                                      </div>
+                                      <span className={`flex-1 text-left text-xs ${isSel ? 'text-blue-700 font-semibold' : 'text-gray-700'}`}>{cfg.fullLabel}</span>
+                                      <span className="text-xs text-gray-400">{cfg.fee}</span>
+                                      {isSel && <MdCheck className="w-4 h-4 text-blue-600 shrink-0" />}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </AccordionContent>
+                          </AccordionItem>
+
+                          {/* E-Wallet */}
+                          <AccordionItem value="ewallet" className="border border-gray-200 rounded-xl overflow-hidden">
+                            <AccordionTrigger className="px-4 py-3.5 hover:bg-gray-50 text-xs font-semibold text-gray-800 [&>svg]:text-gray-400 hover:no-underline">
+                              <span className="flex items-center gap-2">
+                                <MdAccountBalanceWallet className="w-4 h-4 text-gray-500" />
+                                E-Wallet
+                              </span>
+                            </AccordionTrigger>
+                            <AccordionContent className="pb-0">
+                              <div className="divide-y divide-gray-50">
+                                {EWALLET_METHODS.map(m => {
+                                  const cfg = METHODS[m];
+                                  const isSel = paymentMethod === m;
+                                  return (
+                                    <button key={m} type="button" onClick={() => setPaymentMethod(m)}
+                                      className={`w-full flex items-center gap-3 px-4 py-3 transition-colors ${isSel ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
+                                      <div className="w-10 h-6 shrink-0 flex items-center">
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img src={cfg.imgPath} alt={cfg.label} className="w-full h-full object-contain" />
+                                      </div>
+                                      <span className={`flex-1 text-left text-xs ${isSel ? 'text-blue-700 font-semibold' : 'text-gray-700'}`}>{cfg.fullLabel}</span>
+                                      <span className="text-xs text-amber-600">{cfg.fee}</span>
+                                      {isSel && <MdCheck className="w-4 h-4 text-blue-600 shrink-0" />}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </AccordionContent>
+                          </AccordionItem>
+
+                          {/* COD */}
+                          <AccordionItem value="cod" className="border border-gray-200 rounded-xl overflow-hidden">
+                            <AccordionTrigger className="px-4 py-3.5 hover:bg-gray-50 text-xs font-semibold text-gray-800 [&>svg]:text-gray-400 hover:no-underline">
+                              <span className="flex items-center gap-2">
+                                <MdDeliveryDining className="w-4 h-4 text-gray-500" />
+                                Bayar di Tempat
+                                <span className="text-xs text-emerald-600 font-semibold">Gratis</span>
+                              </span>
+                            </AccordionTrigger>
+                            <AccordionContent className="pb-0">
+                              <button type="button" onClick={() => setPaymentMethod('cod')}
+                                className={`w-full flex items-center gap-3 px-4 py-3 transition-colors ${paymentMethod === 'cod' ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
+                                <div className="w-10 h-6 shrink-0 flex items-center">
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img src={METHODS.cod.imgPath} alt="COD" className="w-full h-full object-contain" />
+                                </div>
+                                <div className="flex-1 text-left">
+                                  <span className={`text-xs ${paymentMethod === 'cod' ? 'text-blue-700 font-semibold' : 'text-gray-700'}`}>Bayar di Tempat (COD)</span>
+                                  <p className="text-xs text-gray-400">Bayar saat mengambil pesanan</p>
+                                </div>
+                                <span className="text-xs text-emerald-600">Gratis</span>
+                                {paymentMethod === 'cod' && <MdCheck className="w-4 h-4 text-blue-600 shrink-0" />}
+                              </button>
+                            </AccordionContent>
+                          </AccordionItem>
+                        </Accordion>
+
+                        <button
+                          type="button"
+                          onClick={() => setPaymentPanelOpen(false)}
+                          className="mt-4 w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition-colors"
+                        >
+                          Konfirmasi Pilihan
                         </button>
                       </div>
-                    ) : (
-                      <div>
-                        <div className="flex gap-2">
-                          <input
-                            value={voucherInput}
-                            onChange={e => { setVoucherInput(e.target.value.toUpperCase()); setVoucherError(''); }}
-                            onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleValidateVoucher())}
-                            placeholder="Masukkan kode voucher"
-                            className={inputCls + ' flex-1'}
-                          />
-                          <button
-                            type="button"
-                            disabled={!voucherInput.trim() || voucherLoading}
-                            onClick={handleValidateVoucher}
-                            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white rounded-xl text-sm font-semibold transition-colors whitespace-nowrap"
-                          >
-                            {voucherLoading ? '...' : 'Terapkan'}
-                          </button>
-                        </div>
-                        {voucherError && (
-                          <p className="text-xs text-red-600 mt-2">{voucherError}</p>
-                        )}
-                      </div>
-                    )}
+                    </div>
                   </div>
-                </div>
+                </SectionCard>
+
               </div>
 
-              {/* â”€â”€ RIGHT: Ringkasan â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+              {/* ── RIGHT: Ringkasan ───────────────────────── */}
               <div>
                 <div className="bg-white rounded-2xl border border-gray-100 shadow-sm sticky top-24 overflow-hidden">
                   <div className="px-5 py-4 border-b border-gray-50">
@@ -591,18 +841,16 @@ function CheckoutContent() {
                   </div>
                   <div className="px-5 py-5 space-y-3.5">
                     {items.map(item => (
-                      <div key={item.product.id} className="flex items-center gap-3">
-                        <img
-                          src={getPrimaryImage(item.product)}
-                          alt={item.product.title}
+                      <div key={makeItemKey(item.product.id, item.variations)} className="flex items-center gap-3">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={getPrimaryImage(item.product)} alt={item.product.title}
                           className="w-10 h-10 rounded-lg object-cover border border-gray-100 shrink-0"
-                          onError={e => { (e.target as HTMLImageElement).src = '/images/placeholder-product.svg'; }}
-                        />
+                          onError={e => { (e.target as HTMLImageElement).src = '/images/placeholder-product.svg'; }} />
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-semibold text-gray-700 line-clamp-1">{item.product.title}</p>
-                          <p className="text-[11px] text-gray-400">{item.quantity} x {formatPrice(item.product.price)}</p>
+                          <p className="text-[11px] text-gray-400">{item.quantity} × {formatPrice(item.product.price)}</p>
                         </div>
-                        <span className="text-xs font-semibold text-gray-800 shrink-0">{formatPrice(item.product.price * item.quantity)}</span>
+                        <span className="text-xs text-gray-800 shrink-0">{formatPrice(item.product.price * item.quantity)}</span>
                       </div>
                     ))}
 
@@ -610,59 +858,52 @@ function CheckoutContent() {
 
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between">
-                        <span className="text-gray-500">Subtotal</span>
-                        <span className="font-semibold text-gray-800">{fmt(totalAmount)}</span>
+                        <span className="text-xs text-gray-500">Subtotal produk</span>
+                        <span className="text-xs text-gray-800">{fmt(subtotal)}</span>
                       </div>
                       {voucherDiscount > 0 && (
                         <div className="flex justify-between">
-                          <span className="text-green-600">Diskon Voucher</span>
-                          <span className="font-semibold text-green-600">- {fmt(voucherDiscount)}</span>
+                          <span className="text-xs text-gray-500">Diskon Voucher</span>
+                          <span className="text-xs text-green-600">- {fmt(voucherDiscount)}</span>
                         </div>
                       )}
                       <div className="flex justify-between">
-                        <span className="text-gray-500">Ongkos Kirim</span>
-                        <span className="font-semibold text-emerald-600">Gratis</span>
+                        <span className="text-xs text-gray-500">Biaya Layanan</span>
+                        <span className="text-xs text-gray-800">{fmt(SERVICE_FEE)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-xs text-gray-500">Biaya {METHODS[paymentMethod].label}</span>
+                        <span className={`text-xs ${paymentFee === 0 ? 'text-emerald-600' : 'text-gray-800'}`}>
+                          {paymentFee === 0 ? 'Gratis' : fmt(paymentFee)}
+                        </span>
                       </div>
                     </div>
 
                     <div className="h-px bg-gray-100" />
 
                     <div className="flex justify-between items-center">
-                      <span className="font-semibold text-gray-900">Total Pembayaran</span>
-                      <span className="text-lg font-semibold text-blue-600">{fmt(finalAmount)}</span>
-                    </div>
-
-                    {/* Bank badge */}
-                    <div className="flex items-center gap-2 text-xs text-gray-500">
-                      <span>Bayar via:</span>
-                      <span className={`px-2 py-0.5 rounded-md text-xs font-semibold ${BANK_CFG[selectedBank].color} ${BANK_CFG[selectedBank].textColor}`}>
-                        {BANK_CFG[selectedBank].label} Virtual Account
-                      </span>
+                      <span className="text-sm font-semibold text-gray-900">Total Pembayaran</span>
+                      <span className="text-sm font-bold text-blue-600">{fmt(grandTotal)}</span>
                     </div>
 
                     <button
                       type="submit"
                       disabled={submitting || items.length === 0}
-                      className="w-full mt-1 py-3.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-xl font-semibold text-sm transition-colors shadow-sm flex items-center justify-center gap-2"
+                      className="w-full mt-1 py-3.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed text-white rounded-xl font-semibold text-sm transition-colors shadow-sm flex items-center justify-center gap-2"
                     >
                       {submitting ? (
-                        <>
-                          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                          Memproses...
-                        </>
-                      ) : (
-                        'Bayar Sekarang'
-                      )}
+                        <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Memproses...</>
+                      ) : `Bayar Sekarang`}
                     </button>
 
                     <p className="text-[11px] text-gray-400 text-center leading-relaxed">
                       Dengan melanjutkan, kamu menyetujui{' '}
-                      <Link href="/terms" className="text-blue-500 hover:underline">Syarat & Ketentuan</Link>
-                      {' '}yang berlaku.
+                      <Link href="/terms" className="text-blue-500 hover:underline">Syarat & Ketentuan</Link> yang berlaku.
                     </p>
                   </div>
                 </div>
               </div>
+
             </div>
           </form>
         </div>
@@ -672,7 +913,6 @@ function CheckoutContent() {
     </div>
   );
 }
-
 export default function CheckoutPage() {
   return (
     <Suspense fallback={
@@ -681,7 +921,7 @@ export default function CheckoutPage() {
         <main className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto mb-4" />
-            <p className="text-gray-500 text-sm">Memuat halaman checkout...</p>
+            <p className="text-gray-500 text-sm">Memuat checkout...</p>
           </div>
         </main>
         <Footer />
@@ -691,4 +931,3 @@ export default function CheckoutPage() {
     </Suspense>
   );
 }
-

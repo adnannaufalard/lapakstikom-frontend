@@ -159,7 +159,7 @@ export function DashboardClient() {
   const [revenueByCategory, setRevenueByCategory] = useState<RevenueByCategory[]>([]);
   const [ukmApplications, setUkmApplications] = useState<UkmApplication[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState('');
   const [processing, setProcessing] = useState<string | null>(null);
 
@@ -190,7 +190,7 @@ export function DashboardClient() {
 
   const handleApproval = async (applicationId: string, action: 'approve' | 'reject') => {
     setProcessing(applicationId);
-    setError('');
+    setError(null);
     setSuccess('');
 
     try {
@@ -229,12 +229,6 @@ export function DashboardClient() {
 
   return (
     <div className="space-y-4">
-      {/* Page Header */}
-      <div>
-        <h1 className="text-sm font-semibold text-gray-900">Dashboard</h1>
-        <p className="text-[10px] text-gray-500 mt-0.5">Overview platform Lapak STIKOM</p>
-      </div>
-
       {/* Alerts */}
       {error && (
         <div className="flex items-center gap-2 p-2.5 bg-red-50 border border-red-200 rounded-md">

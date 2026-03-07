@@ -184,8 +184,8 @@ export function UkmDetailClient({ id }: { id: string }) {
             </svg>
           </Button>
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">{ukm.ukm_name}</h1>
-            <p className="text-gray-600 mt-1">Detail UKM dan Statistik Performa</p>
+            <p className="text-base font-semibold text-gray-900">{ukm.ukm_name}</p>
+            <p className="text-xs text-gray-500 mt-0.5">Detail UKM dan Statistik Performa</p>
           </div>
         </div>
         <div className="flex items-center gap-2">

@@ -50,11 +50,7 @@ export default function VouchersPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-start">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Vouchers Management</h1>
-          <p className="text-gray-600 mt-1">Create and manage discount vouchers</p>
-        </div>
+      <div className="flex justify-end">
         <Button onClick={() => setShowForm(true)}>Create New Voucher</Button>
       </div>
 

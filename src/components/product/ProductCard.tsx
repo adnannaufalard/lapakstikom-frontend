@@ -59,7 +59,7 @@ export function ProductCard({ product }: ProductCardProps) {
             </div>
           )}
           {/* Stock Badge */}
-          {stock === 0 && (
+          {stock <= 0 && (
             <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
               <span className="bg-red-600 text-white px-3 py-1 rounded-full text-sm font-medium">
                 Stok Habis

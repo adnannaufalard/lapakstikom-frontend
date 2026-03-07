@@ -146,8 +146,11 @@ export async function apiPut<T>(path: string, body?: unknown, useAdminToken: boo
 }
 
 // DELETE request
-export async function apiDelete<T>(path: string, useAdminToken: boolean = false): Promise<T> {
-  return baseFetch<T>(path, { method: 'DELETE' }, useAdminToken);
+export async function apiDelete<T>(path: string, body?: unknown, useAdminToken: boolean = false): Promise<T> {
+  return baseFetch<T>(path, {
+    method: 'DELETE',
+    body: body ? JSON.stringify(body) : undefined,
+  }, useAdminToken);
 }
 
 // Upload file (multipart/form-data)

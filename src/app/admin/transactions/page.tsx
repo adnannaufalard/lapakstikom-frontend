@@ -2,11 +2,6 @@ export default function TransactionsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Transactions</h1>
-        <p className="text-gray-600 mt-1">Monitor all payment transactions and escrow status</p>
-      </div>
-
       <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
         <div className="w-16 h-16 mx-auto mb-4 bg-purple-100 rounded-full flex items-center justify-center">
           <svg className="w-8 h-8 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">

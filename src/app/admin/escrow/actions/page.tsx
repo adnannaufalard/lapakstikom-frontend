@@ -33,11 +33,7 @@ export default function EscrowActionsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Process Escrow Action</h1>
-        <p className="text-gray-600 mt-1">Release funds to seller or refund to buyer</p>
-      </div>
+
 
       {success && <Alert variant="success">{success}</Alert>}
       {error && <Alert variant="error">{error}</Alert>}

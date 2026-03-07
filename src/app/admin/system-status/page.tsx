@@ -46,11 +46,7 @@ export default function SystemStatusPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">System Status</h1>
-        <p className="text-gray-600 mt-1">Monitor system health and performance</p>
-      </div>
+
 
       {/* Overall Status */}
       <Alert variant="success">

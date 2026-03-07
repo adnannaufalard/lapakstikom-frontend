@@ -27,7 +27,7 @@ export function ActivityLogsClient() {
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [stats, setStats] = useState<ActivityStats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const [actionFilter, setActionFilter] = useState<string>('ALL');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalLogs, setTotalLogs] = useState(0);
@@ -44,7 +44,7 @@ export function ActivityLogsClient() {
 
   const fetchLogs = async () => {
     setLoading(true);
-    setError('');
+    setError(null);
     try {
       const params = new URLSearchParams();
       if (actionFilter !== 'ALL') params.append('action_type', actionFilter);
@@ -131,14 +131,6 @@ export function ActivityLogsClient() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Activity Logs</h1>
-          <p className="text-gray-500 mt-1">Riwayat aktivitas admin dalam user management</p>
-        </div>
-      </div>
-
       {/* Stats Cards */}
       {stats && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

@@ -43,7 +43,7 @@ const BANNER_TYPE_CONFIG: Record<BannerType, { label: string; size: string; widt
 export function BannersManagementClient() {
   const [banners, setBanners] = useState<Banner[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState('');
   const [editingBanner, setEditingBanner] = useState<Banner | null>(null);
   const [deletingBanner, setDeletingBanner] = useState<Banner | null>(null);
@@ -71,7 +71,7 @@ export function BannersManagementClient() {
 
   const fetchBanners = async () => {
     setLoading(true);
-    setError('');
+    setError(null);
     try {
       const response = await apiGet<ApiResponse<Banner[]>>('/homepage/banners', true);
       if (response.success && response.data) {
@@ -101,7 +101,7 @@ export function BannersManagementClient() {
     }
 
     setUploading(true);
-    setError('');
+    setError(null);
 
     try {
       const formDataObj = new FormData();
@@ -128,7 +128,7 @@ export function BannersManagementClient() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setProcessing(true);
-    setError('');
+    setError(null);
     setSuccess('');
 
     try {
@@ -180,7 +180,7 @@ export function BannersManagementClient() {
     if (!deletingBanner) return;
     
     setProcessing(true);
-    setError('');
+    setError(null);
     setSuccess('');
 
     try {
@@ -234,20 +234,12 @@ export function BannersManagementClient() {
 
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-sm font-semibold text-gray-900">Banner Management</h1>
-          <p className="text-[10px] text-gray-500 mt-0.5">Kelola banner hero dan promo homepage</p>
-        </div>
-      </div>
-
       {/* Alerts */}
       {error && (
         <div className="flex items-center gap-2 p-2.5 bg-red-50 border border-red-200 rounded-md">
           <XCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
           <p className="text-xs text-red-700">{error}</p>
-          <button onClick={() => setError('')} className="ml-auto">
+          <button onClick={() => setError(null)} className="ml-auto">
             <X className="w-3 h-3 text-red-400" />
           </button>
         </div>

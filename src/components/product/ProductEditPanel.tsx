@@ -53,9 +53,14 @@ export default function ProductEditPanel({ open, product, onClose, onUpdated }: 
   const [status, setStatus] = useState<'DRAFT' | 'ACTIVE' | 'INACTIVE'>('ACTIVE');
   const [isPreorder, setIsPreorder] = useState(false);
   const [preorderDays, setPreorderDays] = useState(7);
-  const [variations, setVariations] = useState<{ name: string; options: string[] }[]>([]);
+  const [variations, setVariations] = useState<{ name: string; options: string[]; required: boolean }[]>([]);
   const [variationRaws, setVariationRaws] = useState<string[]>([]);
   const [showVariations, setShowVariations] = useState(false);
+  const [variationOptionPrices, setVariationOptionPrices] = useState<Record<number, Record<string, number>>>({});
+  const [variationOptionStocks, setVariationOptionStocks] = useState<Record<number, Record<string, number>>>({});
+  const [variationUseStocks, setVariationUseStocks] = useState<Record<number, boolean>>({});
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [existingImages, setExistingImages] = useState<{ id: string; image_url: string; is_primary: boolean }[]>([]);
@@ -88,16 +93,43 @@ export default function ProductEditPanel({ open, product, onClose, onUpdated }: 
       const existingVariations = Array.isArray((product as any).variations)
         ? (product as any).variations
         : [];
-      setVariations(existingVariations);
+      setVariations(existingVariations.map((v: any) => ({ name: v.name || '', options: Array.isArray(v.options) ? v.options : [], required: v.required !== false })));
       setVariationRaws(existingVariations.map((v: any) => Array.isArray(v.options) ? v.options.join(', ') : ''));
+      const prices: Record<number, Record<string, number>> = {};
+      existingVariations.forEach((v: any, i: number) => { if (v.option_prices) prices[i] = v.option_prices; });
+      setVariationOptionPrices(prices);
+      const stocks: Record<number, Record<string, number>> = {};
+      existingVariations.forEach((v: any, i: number) => { if (v.option_stocks) stocks[i] = v.option_stocks; });
+      setVariationOptionStocks(stocks);
+      const useStocks: Record<number, boolean> = {};
+      existingVariations.forEach((v: any, i: number) => { if (v.option_stocks != null) useStocks[i] = true; });
+      setVariationUseStocks(useStocks);
+      const existingTags = Array.isArray((product as any).tags) ? (product as any).tags : [];
+      setTags(existingTags);
       setExistingImages(product.images || []);
       setNewImages([]);
       setNewImagePreviews([]);
       setError('');
 
-      // Fetch full product detail to load images
-      getProduct(product.id).then(full => {
-        setExistingImages((full as any).images || []);
+      // Fetch fresh product data to get current stock and variations
+      getProduct(product.id).then((full: any) => {
+        setExistingImages(full.images || []);
+        // Override with latest stock and variations from server
+        setStock(full.stock ?? product.stock);
+        const freshVariations = Array.isArray(full.variations) ? full.variations : [];
+        if (freshVariations.length > 0) {
+          setVariations(freshVariations.map((v: any) => ({ name: v.name || '', options: Array.isArray(v.options) ? v.options : [], required: v.required !== false })));
+          setVariationRaws(freshVariations.map((v: any) => Array.isArray(v.options) ? v.options.join(', ') : ''));
+          const fp: Record<number, Record<string, number>> = {};
+          freshVariations.forEach((v: any, i: number) => { if (v.option_prices) fp[i] = v.option_prices; });
+          setVariationOptionPrices(fp);
+          const fs: Record<number, Record<string, number>> = {};
+          freshVariations.forEach((v: any, i: number) => { if (v.option_stocks) fs[i] = v.option_stocks; });
+          setVariationOptionStocks(fs);
+          const fu: Record<number, boolean> = {};
+          freshVariations.forEach((v: any, i: number) => { if (v.option_stocks != null) fu[i] = true; });
+          setVariationUseStocks(fu);
+        }
       }).catch(() => {});
 
       getCategories()
@@ -113,6 +145,11 @@ export default function ProductEditPanel({ open, product, onClose, onUpdated }: 
       setNewImages([]);
       setNewImagePreviews([]);
       setVariationRaws([]);
+      setVariationOptionPrices({});
+      setVariationOptionStocks({});
+      setVariationUseStocks({});
+      setTags([]);
+      setTagInput('');
       setError('');
     }
   }, [open]);
@@ -194,16 +231,25 @@ export default function ProductEditPanel({ open, product, onClose, onUpdated }: 
         description: description.trim() || undefined,
         price,
         price_striked: priceStriked > 0 ? priceStriked : null,
-        stock,
+        stock: (() => {
+          const allStocks: number[] = [];
+          Object.entries(variationUseStocks).forEach(([k, enabled]) => {
+            if (enabled) allStocks.push(...Object.values(variationOptionStocks[Number(k)] || {}));
+          });
+          if (allStocks.length > 0) return allStocks.reduce((a, b) => a + b, 0);
+          return stock;
+        })(),
         condition,
         category_id: categoryId || undefined,
         status,
         is_preorder: isPreorder,
         preorder_days: isPreorder ? preorderDays : undefined,
-        variations: variations.length > 0 ? variations.map((v, i) => ({
-          name: v.name,
-          options: (variationRaws[i] || '').split(',').map((s: string) => s.trim()).filter(Boolean),
-        })) : [],
+        variations: variations.length > 0 ? variations.map((v, i) => {
+          const opts = (variationRaws[i] || '').split(',').map((s: string) => s.trim()).filter(Boolean);
+          const prices = variationOptionPrices[i] || {};
+          return { name: v.name, options: opts, option_prices: Object.fromEntries(opts.map(o => [o, prices[o] ?? 0])), ...(variationUseStocks[i] ? { option_stocks: Object.fromEntries(opts.map(o => [o, variationOptionStocks[i]?.[o] ?? 0])) } : {}), required: v.required !== false };
+        }) : [],
+        tags: tags.length > 0 ? tags : [],
       };
       const updated = await updateProduct(product.id, payload);
       if (newImages.length > 0) {
@@ -547,6 +593,54 @@ export default function ProductEditPanel({ open, product, onClose, onUpdated }: 
             </div>
           </div>
 
+          {/* ── Section: Tag ── */}
+          <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-700">Tag Produk <span className="text-xs font-normal text-gray-400">(opsional)</span></h3>
+              <p className="text-xs text-gray-400 mt-0.5">Tambah tag untuk memudahkan pencarian. Maks 10 tag.</p>
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={tagInput}
+                onChange={e => setTagInput(e.target.value)}
+                onKeyDown={e => {
+                  if ((e.key === 'Enter' || e.key === ',') && tagInput.trim()) {
+                    e.preventDefault();
+                    const norm = tagInput.trim().toLowerCase().replace(/[^a-z0-9\s-]/g, '');
+                    if (norm && !tags.includes(norm) && tags.length < 10) {
+                      setTags(prev => [...prev, norm]);
+                    }
+                    setTagInput('');
+                  }
+                }}
+                placeholder="Ketik tag lalu tekan Enter"
+                className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const norm = tagInput.trim().toLowerCase().replace(/[^a-z0-9\s-]/g, '');
+                  if (norm && !tags.includes(norm) && tags.length < 10) {
+                    setTags(prev => [...prev, norm]);
+                  }
+                  setTagInput('');
+                }}
+                className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors"
+              >+</button>
+            </div>
+            {tags.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {tags.map(tag => (
+                  <span key={tag} className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-3 py-1 text-xs font-medium">
+                    #{tag}
+                    <button type="button" onClick={() => setTags(prev => prev.filter(t => t !== tag))} className="ml-0.5 text-blue-400 hover:text-blue-700">&times;</button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* ── Section: Variasi ── */}
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <button
@@ -559,42 +653,107 @@ export default function ProductEditPanel({ open, product, onClose, onUpdated }: 
             </button>
             {showVariations && (
               <div className="border-t border-gray-100 p-4 space-y-3">
-                <p className="text-xs text-gray-500">Tambahkan variasi seperti warna, ukuran, dll.</p>
-                {variations.map((v, idx) => (
-                  <div key={idx} className="bg-gray-50 rounded-lg p-3 space-y-2">
-                    <div className="flex items-center gap-2">
+                <p className="text-xs text-gray-500">Tambahkan variasi seperti warna, ukuran, dll. Atur harga tiap opsi.</p>
+                {variations.map((v, idx) => {
+                  const opts = (variationRaws[idx] || '').split(',').map(s => s.trim()).filter(Boolean);
+                  return (
+                    <div key={idx} className="bg-gray-50 rounded-lg p-3 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          placeholder="Nama variasi (cth: Ukuran)"
+                          value={v.name}
+                          onChange={e => {
+                            const next = [...variations];
+                            next[idx].name = e.target.value;
+                            setVariations(next);
+                          }}
+                          className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <button type="button" onClick={() => { setVariations(prev => prev.filter((_, i) => i !== idx)); setVariationRaws(prev => prev.filter((_, i) => i !== idx)); setVariationOptionPrices(prev => { const next = { ...prev }; delete next[idx]; return next; }); setVariationOptionStocks(prev => { const next = { ...prev }; delete next[idx]; return next; }); setVariationUseStocks(prev => { const next = { ...prev }; delete next[idx]; return next; }); }} className="text-red-400 hover:text-red-600 p-1">
+                          <MdDelete />
+                        </button>
+                      </div>
+                      {/* Toggles: Wajib/Opsional + Stok per opsi */}
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <div className="flex items-center gap-1">
+                          <span className="text-[11px] text-gray-500">Pilihan:</span>
+                          <button type="button" onClick={() => { const next = [...variations]; next[idx].required = true; setVariations(next); }} className={`px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors ${v.required !== false ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}>Wajib</button>
+                          <button type="button" onClick={() => { const next = [...variations]; next[idx].required = false; setVariations(next); }} className={`px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors ${v.required === false ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}>Opsional</button>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="text-[11px] text-gray-500">Stok per opsi:</span>
+                          <button type="button" onClick={() => setVariationUseStocks(prev => ({ ...prev, [idx]: !prev[idx] }))} className={`px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors ${variationUseStocks[idx] ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}>{variationUseStocks[idx] ? 'Aktif' : 'Nonaktif'}</button>
+                        </div>
+                      </div>
                       <input
                         type="text"
-                        placeholder="Nama variasi"
-                        value={v.name}
+                        placeholder="Opsi dipisah koma: Merah, Biru, Hijau"
+                        value={variationRaws[idx] ?? ''}
                         onChange={e => {
-                          const next = [...variations];
-                          next[idx].name = e.target.value;
-                          setVariations(next);
+                          const newRaws = [...variationRaws];
+                          newRaws[idx] = e.target.value;
+                          setVariationRaws(newRaws);
                         }}
-                        className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
-                      <button type="button" onClick={() => { setVariations(prev => prev.filter((_, i) => i !== idx)); setVariationRaws(prev => prev.filter((_, i) => i !== idx)); }} className="text-red-400 hover:text-red-600 p-1">
-                        <MdDelete />
-                      </button>
+                      {opts.length > 0 && (
+                        <div className="space-y-1.5 pt-1">
+                          <div className="flex items-center gap-2 text-[11px] text-gray-400 font-medium">
+                            <span className="w-24">Opsi</span>
+                            <span className="flex-1">Harga tambahan (Rp 0 = harga produk)</span>
+                            {variationUseStocks[idx] && <span className="w-24 text-center">Stok</span>}
+                          </div>
+                          {opts.map(opt => (
+                            <div key={opt} className="flex items-center gap-2">
+                              <span className="text-xs text-gray-600 w-24 truncate">{opt}</span>
+                              <div className="relative flex-1">
+                                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">Rp</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  placeholder="0"
+                                  value={variationOptionPrices[idx]?.[opt] ?? ''}
+                                  onChange={e => {
+                                    const val = parseInt(e.target.value) || 0;
+                                    setVariationOptionPrices(prev => ({
+                                      ...prev,
+                                      [idx]: { ...(prev[idx] || {}), [opt]: val }
+                                    }));
+                                  }}
+                                  className="w-full border border-gray-200 rounded-lg pl-8 pr-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                              </div>
+                              {variationUseStocks[idx] && (
+                                <input
+                                  type="number"
+                                  min={0}
+                                  placeholder="Stok"
+                                  value={variationOptionStocks[idx]?.[opt] ?? ''}
+                                  onChange={e => {
+                                    const val = parseInt(e.target.value) || 0;
+                                    setVariationOptionStocks(prev => ({
+                                      ...prev,
+                                      [idx]: { ...(prev[idx] || {}), [opt]: val }
+                                    }));
+                                  }}
+                                  className="w-24 border border-gray-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                              )}
+                            </div>
+                          ))}
+                          {variationUseStocks[idx] && Object.values(variationOptionStocks[idx] || {}).some(v => v > 0) && (
+                            <p className="text-[10px] text-blue-500 mt-1">Total stok = {Object.values(variationOptionStocks[idx] || {}).reduce((a, b) => a + b, 0)} (dihitung otomatis dari stok tiap opsi)</p>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    <input
-                      type="text"
-                      placeholder="Opsi dipisah koma: Merah, Biru, Hijau"
-                      value={variationRaws[idx] ?? ''}
-                      onChange={e => {
-                        const newRaws = [...variationRaws];
-                        newRaws[idx] = e.target.value;
-                        setVariationRaws(newRaws);
-                      }}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                ))}
+                  );
+                })}
                 <button
                   type="button"
                   onClick={() => {
-                    setVariations(prev => [...prev, { name: '', options: [] }]);
+                    setVariations(prev => [...prev, { name: '', options: [], required: true }]);
                     setVariationRaws(prev => [...prev, '']);
                   }}
                   className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 font-medium"

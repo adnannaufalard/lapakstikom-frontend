@@ -64,11 +64,7 @@ export default function TicketsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Customer Support Tickets</h1>
-        <p className="text-gray-600 mt-1">Manage customer inquiries and support requests</p>
-      </div>
+
 
       {/* Stats */}
       <div className="grid gap-6 md:grid-cols-4">

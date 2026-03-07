@@ -69,7 +69,7 @@ export function ProductCard({ product }: { product: Product }) {
           )}
 
           {/* Out-of-stock overlay */}
-          {stock === 0 && (
+          {stock <= 0 && (
             <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
               <span className="bg-red-600 text-white px-3 py-1 rounded-full text-xs font-semibold">Stok Habis</span>
             </div>

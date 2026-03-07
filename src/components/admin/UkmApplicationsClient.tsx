@@ -182,12 +182,8 @@ export function UkmApplicationsClient() {
 
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-sm font-semibold text-gray-900">UKM Applications</h1>
-          <p className="text-[10px] text-gray-500 mt-0.5">Review dan kelola pendaftaran UKM</p>
-        </div>
+      {/* Actions */}
+      <div className="flex justify-end">
         <button
           onClick={() => fetchData()}
           disabled={loading}

@@ -80,7 +80,7 @@ interface ProductDetail {
   category_name?: string;
   category_slug?: string;
   images?: ProductImage[];
-  variations?: { name: string; options: string[] }[];
+  variations?: { name: string; options: string[]; option_prices?: Record<string, number>; option_stocks?: Record<string, number>; required?: boolean }[];
 }
 
 const rp = (n: number) =>
@@ -237,6 +237,26 @@ export default function ProductDetailPage() {
       ? Math.round(((priceStriked - price) / priceStriked) * 100)
       : 0;
 
+  // Effective price updates when a variation option with its own price is selected
+  const effectivePrice = (product.variations ?? []).reduce<number>((p, v) => {
+    const sel = sheetVariations[v.name];
+    const optPrice = sel ? (v.option_prices?.[sel] ?? 0) : 0;
+    return optPrice > 0 ? optPrice : p;
+  }, price);
+
+  // Effective stock: use option-specific stock if a variation with stock is selected
+  const effectiveStock = (() => {
+    let result: number | null = null;
+    for (const v of product.variations ?? []) {
+      const sel = sheetVariations[v.name];
+      if (sel && v.option_stocks && v.option_stocks[sel] !== undefined) {
+        const s = v.option_stocks[sel];
+        if (result === null || s < result) result = s;
+      }
+    }
+    return result ?? product.stock;
+  })();
+
   const images =
     product.images && product.images.length > 0
       ? product.images
@@ -381,7 +401,7 @@ export default function ProductDetailPage() {
 
     // Validate all variations have been selected
     if (product.variations && product.variations.length > 0) {
-      const missing = product.variations.filter(v => !sheetVariations[v.name]);
+      const missing = product.variations.filter(v => v.required !== false && !sheetVariations[v.name]);
       if (missing.length > 0) {
         showToast(`Pilih ${missing[0].name} terlebih dahulu`, 'error');
         return;
@@ -397,11 +417,13 @@ export default function ProductDetailPage() {
       addToCart({
         productId: product.id,
         title: product.title,
-        price,
+        price: effectivePrice,
         imageUrl: images[0]?.image_url ?? '/images/placeholder-product.png',
-        stock: product.stock,
+        stock: effectiveStock,
         sellerId: product.seller_id,
         sellerName: product.seller_name ?? '',
+        sellerAvatar: product.seller_avatar,
+        variations: Object.keys(sheetVariations).length > 0 ? sheetVariations : undefined,
       }, sheetQty);
       showToast('Produk ditambahkan ke keranjang', 'success');
     }
@@ -439,7 +461,7 @@ export default function ProductDetailPage() {
                     PRE-ORDER
                   </div>
                 )}
-                {product.stock === 0 && (
+                {product.stock <= 0 && (
                   <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-2xl">
                     <span className="bg-red-600 text-white px-4 py-2 rounded-xl font-semibold text-sm shadow">Stok Habis</span>
                   </div>
@@ -556,7 +578,7 @@ export default function ProductDetailPage() {
                       onClick={() => openSheet('cart')}
                       className="w-full py-3.5 border-2 border-blue-600 text-blue-600 rounded-xl font-semibold text-sm hover:bg-blue-50 transition-colors"
                     >
-                      {isInCart(product.id) ? '✓ Ada di Keranjang' : '+ Keranjang'}
+                      {isInCart(product.id) ? 'Tambah lagi ke keranjang' : 'Tambah ke keranjang'}
                     </button>
                   </>
                 )}
@@ -1042,8 +1064,8 @@ export default function ProductDetailPage() {
                 />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-gray-900 line-clamp-2 leading-snug">{product.title}</p>
-                  <p className="text-base font-bold text-blue-600 mt-1">Rp{rp(price)}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{product.stock} stok tersedia</p>
+                  <p className="text-base font-bold text-blue-600 mt-1">Rp{rp(effectivePrice)}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{effectiveStock} stok tersedia</p>
                 </div>
               </div>
 
@@ -1054,25 +1076,38 @@ export default function ProductDetailPage() {
                     <div key={vi}>
                       <p className="text-sm font-semibold text-gray-700 mb-2.5">
                         {variation.name}
-                        {!sheetVariations[variation.name] && (
-                          <span className="ml-1.5 text-[11px] font-normal text-orange-500">Pilih salah satu</span>
-                        )}
+                        {variation.required === false
+                          ? <span className="ml-1.5 text-[11px] font-normal text-gray-400">(opsional)</span>
+                          : !sheetVariations[variation.name] && <span className="ml-1.5 text-[11px] font-normal text-orange-500">Pilih salah satu</span>
+                        }
                       </p>
                       <div className="flex flex-wrap gap-2">
-                        {variation.options.map(opt => (
-                          <button
-                            key={opt}
-                            type="button"
-                            onClick={() => setSheetVariations(prev => ({ ...prev, [variation.name]: opt }))}
-                            className={`px-3.5 py-1.5 rounded-lg border-2 text-sm font-medium transition-all ${
-                              sheetVariations[variation.name] === opt
-                                ? 'border-blue-500 bg-blue-50 text-blue-700'
-                                : 'border-gray-200 text-gray-600 hover:border-gray-300 bg-white'
-                            }`}
-                          >
-                            {opt}
-                          </button>
-                        ))}
+                        {variation.options.map(opt => {
+                          const optStock = variation.option_stocks?.[opt];
+                          const isOutOfStock = optStock !== undefined && optStock <= 0;
+                          return (
+                            <button
+                              key={opt}
+                              type="button"
+                              disabled={isOutOfStock}
+                              onClick={() => !isOutOfStock && setSheetVariations(prev => ({ ...prev, [variation.name]: opt }))}
+                              className={`px-3.5 py-1.5 rounded-lg border-2 text-sm font-medium transition-all ${
+                                sheetVariations[variation.name] === opt
+                                  ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                  : isOutOfStock
+                                    ? 'border-gray-100 text-gray-300 bg-gray-50 cursor-not-allowed'
+                                    : 'border-gray-200 text-gray-600 hover:border-gray-300 bg-white'
+                              }`}
+                            >
+                              <span>{opt}</span>
+                              {optStock !== undefined && (
+                                <span className={`text-[10px] ml-1 ${isOutOfStock ? 'text-red-400' : 'text-gray-400'}`}>
+                                  ({isOutOfStock ? 'habis' : `${optStock}`})
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   ))}
@@ -1094,13 +1129,13 @@ export default function ProductDetailPage() {
                     <span className="w-14 text-center text-sm font-bold border-x border-gray-200 py-2.5">{sheetQty}</span>
                     <button
                       type="button"
-                      onClick={() => setSheetQty(q => Math.min(product.stock, q + 1))}
+                      onClick={() => setSheetQty(q => Math.min(effectiveStock, q + 1))}
                       className="w-10 h-10 flex items-center justify-center text-gray-600 hover:bg-gray-50 transition-colors active:bg-gray-100"
                     >
                       <MdAdd />
                     </button>
                   </div>
-                  <span className="text-xs text-gray-400">maks. {product.stock} item</span>
+                  <span className="text-xs text-gray-400">maks. {effectiveStock} item</span>
                 </div>
               </div>
             </div>
@@ -1109,7 +1144,7 @@ export default function ProductDetailPage() {
             <div className="shrink-0 px-5 py-4 border-t border-gray-100">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm text-gray-500">Total Harga</span>
-                <span className="text-lg font-bold text-gray-900">Rp{rp(price * sheetQty)}</span>
+                <span className="text-lg font-bold text-gray-900">Rp{rp(effectivePrice * sheetQty)}</span>
               </div>
               <button
                 onClick={handleSheetConfirm}

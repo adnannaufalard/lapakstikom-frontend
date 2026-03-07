@@ -7,11 +7,17 @@ import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
 import { useCart } from '@/contexts/CartContext';
 import { useAuth } from '@/hooks/useAuth';
-import { MdAdd, MdRemove, MdDelete, MdCheckBox, MdCheckBoxOutlineBlank } from 'react-icons/md';
+import { MdAdd, MdRemove, MdDelete, MdCheckBox, MdCheckBoxOutlineBlank, MdStorefront, MdVerified } from 'react-icons/md';
 import { HiShoppingBag } from 'react-icons/hi2';
 
 const rp = (n: number) =>
   Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+
+const ROLE_BADGE: Record<string, { label: string; className: string }> = {
+  MAHASISWA: { label: 'Mahasiswa', className: 'bg-blue-100 text-blue-700' },
+  DOSEN: { label: 'Dosen', className: 'bg-green-100 text-green-700' },
+  KARYAWAN: { label: 'Karyawan', className: 'bg-orange-100 text-orange-700' },
+};
 
 export default function CartPage() {
   const { items, removeFromCart, updateQty, clearCart } = useCart();
@@ -20,32 +26,45 @@ export default function CartPage() {
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  const allChecked = items.length > 0 && items.every(i => selected.has(i.productId));
+  // Group items by sellerId, preserving insertion order
+  const sellerGroups: { sellerId: string; sellerName: string; sellerAvatar?: string; sellerRole?: string; items: typeof items }[] = [];
+  const seenSellers = new Map<string, number>();
+  for (const item of items) {
+    if (!seenSellers.has(item.sellerId)) {
+      seenSellers.set(item.sellerId, sellerGroups.length);
+      sellerGroups.push({ sellerId: item.sellerId, sellerName: item.sellerName, sellerAvatar: item.sellerAvatar, sellerRole: item.sellerRole, items: [] });
+    }
+    sellerGroups[seenSellers.get(item.sellerId)!].items.push(item);
+  }
+
+  const allChecked = items.length > 0 && items.every(i => selected.has(i.cartKey));
 
   const toggleAll = () => {
     if (allChecked) {
       setSelected(new Set());
     } else {
-      setSelected(new Set(items.map(i => i.productId)));
+      setSelected(new Set(items.map(i => i.cartKey)));
     }
   };
 
-  const toggleOne = (productId: string) => {
+  const toggleOne = (cartKey: string) => {
     setSelected(prev => {
       const next = new Set(prev);
-      if (next.has(productId)) next.delete(productId);
-      else next.add(productId);
+      if (next.has(cartKey)) next.delete(cartKey);
+      else next.add(cartKey);
       return next;
     });
   };
 
-  const handleRemove = async (productId: string) => {
-    await removeFromCart(productId);
-    setSelected(prev => { const n = new Set(prev); n.delete(productId); return n; });
+  const handleRemove = async (cartKey: string) => {
+    await removeFromCart(cartKey);
+    setSelected(prev => { const n = new Set(prev); n.delete(cartKey); return n; });
   };
 
-  const selectedItems = items.filter(i => selected.has(i.productId));
+  const selectedItems = items.filter(i => selected.has(i.cartKey));
   const total = selectedItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
+
+  const outOfStockSelected = selectedItems.some(i => i.stock <= 0 || i.quantity > i.stock);
 
   const handleCheckout = () => {
     if (!isLoggedIn) {
@@ -53,9 +72,18 @@ export default function CartPage() {
       return;
     }
     if (selectedItems.length === 0) return;
-    // For now build query per-item (single product checkout flow)
-    const first = selectedItems[0];
-    router.push(`/checkout?product=${first.productId}&qty=${first.quantity}`);
+    if (outOfStockSelected) return;
+    sessionStorage.setItem(
+      'checkout_items',
+      JSON.stringify(
+        selectedItems.map(i => ({
+          productId: i.productId,
+          quantity: i.quantity,
+          variations: i.variations,
+        }))
+      )
+    );
+    router.push('/checkout?source=cart');
   };
 
   return (
@@ -91,7 +119,7 @@ export default function CartPage() {
             <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6 items-start">
 
               {/* Item list */}
-              <div className="space-y-2">
+              <div className="space-y-4">
                 {/* Select-all row */}
                 <div className="flex items-center gap-2 px-1 pb-1 border-b border-gray-100">
                   <button onClick={toggleAll} className="flex items-center gap-2 text-sm text-gray-600 hover:text-blue-600 transition-colors">
@@ -105,85 +133,139 @@ export default function CartPage() {
                   )}
                 </div>
 
-                {items.map(item => {
-                  const isChecked = selected.has(item.productId);
-                  return (
-                    <div
-                      key={item.productId}
-                      className={`rounded-2xl border p-4 flex gap-3 transition-colors ${
-                        isChecked ? 'border-blue-200 bg-blue-50/30' : 'border-gray-100 bg-white'
-                      }`}
-                    >
-                      {/* Checkbox */}
-                      <button
-                        onClick={() => toggleOne(item.productId)}
-                        className="shrink-0 mt-1 self-start"
-                      >
-                        {isChecked
-                          ? <MdCheckBox className="text-blue-600 text-xl" />
-                          : <MdCheckBoxOutlineBlank className="text-gray-400 text-xl" />}
-                      </button>
-
-                      {/* Image */}
-                      <Link href={`/products/${item.productId}`} className="shrink-0">
-                        <div className="w-18 h-18 w-[72px] h-[72px] rounded-xl overflow-hidden bg-gray-50 border border-gray-100">
-                          <img
-                            src={item.imageUrl}
-                            alt={item.title}
-                            className="w-full h-full object-cover"
-                            onError={e => { (e.target as HTMLImageElement).src = '/images/placeholder-product.png'; }}
-                          />
+                {sellerGroups.map(group => (
+                  <div key={group.sellerId} className="rounded-2xl border border-gray-100 overflow-hidden">
+                    {/* Seller header */}
+                    <div className="flex items-center gap-2.5 px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+                      {group.sellerAvatar ? (
+                        <img
+                          src={group.sellerAvatar}
+                          alt={group.sellerName}
+                          className="w-7 h-7 rounded-full object-cover border border-gray-200 shrink-0"
+                          onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                      ) : (
+                        <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
+                          <MdStorefront className="text-blue-500 text-sm" />
                         </div>
-                      </Link>
-
-                      {/* Info */}
-                      <div className="flex-1 min-w-0 space-y-1">
-                        <Link
-                          href={`/products/${item.productId}`}
-                          className="text-sm font-medium text-gray-900 hover:text-blue-600 line-clamp-2 leading-snug block"
-                        >
-                          {item.title}
-                        </Link>
-                        <p className="text-xs text-gray-400">{item.sellerName}</p>
-                        <p className="text-sm font-semibold text-blue-600">Rp{rp(item.price)}</p>
-
-                        <div className="flex items-center justify-between pt-1">
-                          {/* Qty selector */}
-                          <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden bg-white">
-                            <button
-                              onClick={() => updateQty(item.productId, item.quantity - 1)}
-                              className="w-8 h-8 flex items-center justify-center text-gray-500 hover:bg-gray-50 transition-colors"
-                            >
-                              <MdRemove className="text-sm" />
-                            </button>
-                            <span className="w-10 text-center text-sm font-semibold border-x border-gray-200 py-1">
-                              {item.quantity}
-                            </span>
-                            <button
-                              onClick={() => updateQty(item.productId, item.quantity + 1)}
-                              disabled={item.quantity >= item.stock}
-                              className="w-8 h-8 flex items-center justify-center text-gray-500 hover:bg-gray-50 transition-colors disabled:opacity-40"
-                            >
-                              <MdAdd className="text-sm" />
-                            </button>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-semibold text-gray-700">
-                              Rp{rp(item.price * item.quantity)}
-                            </span>
-                            <button
-                              onClick={() => handleRemove(item.productId)}
-                              className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                            >
-                              <MdDelete className="text-base" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
+                      )}
+                      <span className="text-sm font-semibold text-gray-700 truncate">{group.sellerName}</span>
+                      {group.sellerRole === 'UKM_OFFICIAL' && (
+                        <MdVerified className="text-blue-500 text-base shrink-0" />
+                      )}
+                      {group.sellerRole && group.sellerRole !== 'UKM_OFFICIAL' && ROLE_BADGE[group.sellerRole] && (
+                        <span className={`shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full leading-tight ${ROLE_BADGE[group.sellerRole].className}`}>
+                          {ROLE_BADGE[group.sellerRole].label}
+                        </span>
+                      )}
                     </div>
-                  );
-                })}
+
+                    {/* Items in this group */}
+                    <div className="divide-y divide-gray-50">
+                      {group.items.map(item => {
+                        const isChecked = selected.has(item.cartKey);
+                        return (
+                          <div
+                            key={item.cartKey}
+                            className={`p-4 flex gap-3 transition-colors ${
+                              isChecked ? 'bg-blue-50/40' : 'bg-white'
+                            }`}
+                          >
+                            {/* Checkbox */}
+                            <button
+                              onClick={() => toggleOne(item.cartKey)}
+                              className="shrink-0 mt-1 self-start"
+                            >
+                              {isChecked
+                                ? <MdCheckBox className="text-blue-600 text-xl" />
+                                : <MdCheckBoxOutlineBlank className="text-gray-400 text-xl" />}
+                            </button>
+
+                            {/* Image */}
+                            <Link href={`/products/${item.productId}`} className="shrink-0">
+                              <div className="w-[72px] h-[72px] rounded-xl overflow-hidden bg-gray-50 border border-gray-100">
+                                <img
+                                  src={item.imageUrl}
+                                  alt={item.title}
+                                  className="w-full h-full object-cover"
+                                  onError={e => { (e.target as HTMLImageElement).src = '/images/placeholder-product.png'; }}
+                                />
+                              </div>
+                            </Link>
+
+                            {/* Info */}
+                            <div className="flex-1 min-w-0 space-y-1">
+                              <Link
+                                href={`/products/${item.productId}`}
+                                className="text-sm font-medium text-gray-900 hover:text-blue-600 line-clamp-2 leading-snug block"
+                              >
+                                {item.title}
+                              </Link>
+
+                              {/* Out-of-stock warning */}
+                              {item.stock <= 0 && (
+                                <p className="text-[11px] font-semibold text-red-500">Stok habis</p>
+                              )}
+                              {item.stock > 0 && item.quantity > item.stock && (
+                                <p className="text-[11px] font-semibold text-orange-500">Stok tersisa {item.stock}, kurangi jumlah</p>
+                              )}
+
+                            {/* Variation badges */}
+                              {item.variations && Object.keys(item.variations).length > 0 && (
+                                <div className="flex flex-wrap gap-1">
+                                  {Object.entries(item.variations).map(([key, val]) => (
+                                    <span
+                                      key={key}
+                                      className="inline-flex items-center px-2 py-0.5 rounded-md bg-gray-100 text-xs text-gray-600 font-medium"
+                                    >
+                                      {key}: {val}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+
+                              <p className="text-sm font-semibold text-blue-600">Rp{rp(item.price)}</p>
+
+                              <div className="flex items-center justify-between pt-1">
+                                {/* Qty selector */}
+                                <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden bg-white">
+                                  <button
+                                    onClick={() => updateQty(item.cartKey, item.quantity - 1)}
+                                    className="w-8 h-8 flex items-center justify-center text-gray-500 hover:bg-gray-50 transition-colors"
+                                  >
+                                    <MdRemove className="text-sm" />
+                                  </button>
+                                  <span className="w-10 text-center text-sm font-semibold border-x border-gray-200 py-1">
+                                    {item.quantity}
+                                  </span>
+                                  <button
+                                    onClick={() => updateQty(item.cartKey, item.quantity + 1)}
+                                    disabled={item.quantity >= item.stock}
+                                    className="w-8 h-8 flex items-center justify-center text-gray-500 hover:bg-gray-50 transition-colors disabled:opacity-40"
+                                  >
+                                    <MdAdd className="text-sm" />
+                                  </button>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-semibold text-gray-700">
+                                    Rp{rp(item.price * item.quantity)}
+                                  </span>
+                                  <button
+                                    onClick={() => handleRemove(item.cartKey)}
+                                    className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                  >
+                                    <MdDelete className="text-base" />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
 
               {/* Summary */}
@@ -197,8 +279,8 @@ export default function CartPage() {
                 ) : (
                   <div className="space-y-2">
                     {selectedItems.map(item => (
-                      <div key={item.productId} className="flex justify-between text-xs text-gray-500">
-                        <span className="truncate max-w-[160px]">{item.title} Ã—{item.quantity}</span>
+                      <div key={item.cartKey} className="flex justify-between text-xs text-gray-500">
+                        <span className="truncate max-w-[160px]">{item.title} ×{item.quantity}</span>
                         <span className="shrink-0 ml-2">Rp{rp(item.price * item.quantity)}</span>
                       </div>
                     ))}
@@ -214,12 +296,14 @@ export default function CartPage() {
 
                 <button
                   onClick={handleCheckout}
-                  disabled={selectedItems.length === 0}
+                  disabled={selectedItems.length === 0 || outOfStockSelected}
                   className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm transition-colors disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
                 >
                   {selectedItems.length === 0
                     ? 'Pilih produk dahulu'
-                    : `Beli Sekarang (${selectedItems.length})`}
+                    : outOfStockSelected
+                      ? 'Stok Habis'
+                      : `Beli Sekarang (${selectedItems.length})`}
                 </button>
               </div>
             </div>
@@ -230,3 +314,4 @@ export default function CartPage() {
     </div>
   );
 }
+

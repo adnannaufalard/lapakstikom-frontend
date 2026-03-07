@@ -159,12 +159,8 @@ export function AnnouncementsManagementClient() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Announcements Management</h1>
-          <p className="text-gray-600 mt-1">Kelola pengumuman dan informasi untuk pengguna</p>
-        </div>
+      {/* Actions */}
+      <div className="flex justify-end">
         <Button onClick={() => setShowForm(true)}>
           + Tambah Pengumuman
         </Button>

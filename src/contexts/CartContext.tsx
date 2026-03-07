@@ -13,6 +13,7 @@ import { useAuth } from './AuthContext';
 import { apiGet, apiPost, apiPut, apiDelete, ApiResponse } from '@/lib/api';
 
 export interface CartItem {
+  cartKey: string;           // unique key: productId or productId::{"size":"L"}
   productId: string;
   title: string;
   price: number;
@@ -20,16 +21,19 @@ export interface CartItem {
   stock: number;
   sellerId: string;
   sellerName: string;
+  sellerAvatar?: string;
+  sellerRole?: string;
   quantity: number;
+  variations?: Record<string, string>;
 }
 
 interface CartContextValue {
   items: CartItem[];
   cartCount: number;
   loading: boolean;
-  addToCart: (item: Omit<CartItem, 'quantity'>, qty?: number) => Promise<void>;
-  removeFromCart: (productId: string) => Promise<void>;
-  updateQty: (productId: string, qty: number) => Promise<void>;
+  addToCart: (item: Omit<CartItem, 'quantity' | 'cartKey'>, qty?: number) => Promise<void>;
+  removeFromCart: (cartKey: string) => Promise<void>;
+  updateQty: (cartKey: string, qty: number) => Promise<void>;
   clearCart: () => Promise<void>;
   isInCart: (productId: string) => boolean;
 }
@@ -37,6 +41,15 @@ interface CartContextValue {
 const CartContext = createContext<CartContextValue | null>(null);
 
 const GUEST_CART_KEY = 'lapakstikom_guest_cart';
+
+// ── Cart key helper ──────────────────────────────────────────────────────────
+function makeCartKey(productId: string, variations?: Record<string, string>): string {
+  if (!variations || Object.keys(variations).length === 0) return productId;
+  const sorted = Object.fromEntries(
+    Object.entries(variations).sort(([a], [b]) => a.localeCompare(b))
+  );
+  return `${productId}::${JSON.stringify(sorted)}`;
+}
 
 // ── localStorage helpers (guest-only) ──────────────────────────────────────
 function readGuestCart(): CartItem[] {
@@ -63,11 +76,17 @@ interface DbCartRow {
   image_url: string | null;
   seller_id: string;
   seller_name: string;
+  seller_avatar: string | null;
+  seller_role: string | null;
   quantity: number;
+  variations: Record<string, string> | null;
 }
 
 function dbRowToItem(row: DbCartRow): CartItem {
+  const variations =
+    row.variations && Object.keys(row.variations).length > 0 ? row.variations : undefined;
   return {
+    cartKey: makeCartKey(row.product_id, variations),
     productId: row.product_id,
     title: row.title,
     price: Number(row.price),
@@ -75,7 +94,10 @@ function dbRowToItem(row: DbCartRow): CartItem {
     stock: row.stock,
     sellerId: row.seller_id,
     sellerName: row.seller_name ?? '',
+    sellerAvatar: row.seller_avatar ?? undefined,
+    sellerRole: row.seller_role ?? undefined,
     quantity: row.quantity,
+    variations,
   };
 }
 
@@ -95,7 +117,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
       setItems(rows.map(dbRowToItem));
     } catch (err) {
       console.error('[CartContext] loadFromDb failed:', err);
-      // Don't wipe items on transient error — keep showing stale data
     } finally {
       setLoading(false);
     }
@@ -110,11 +131,14 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
     if (isLoggedIn) {
       if (wasLoggedIn === false) {
-        // Just logged in → merge guest cart → reload from DB
         const guest = readGuestCart();
         if (guest.length > 0) {
           apiPost('/cart/sync', {
-            items: guest.map(i => ({ productId: i.productId, quantity: i.quantity })),
+            items: guest.map(i => ({
+              productId: i.productId,
+              quantity: i.quantity,
+              variations: i.variations ?? {},
+            })),
           })
             .catch(() => {})
             .finally(() => {
@@ -125,16 +149,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
           loadFromDb();
         }
       } else if (wasLoggedIn === null) {
-        // App first load while already logged in
         loadFromDb();
       }
     } else {
       if (wasLoggedIn === true) {
-        // Just logged out → clear localStorage and empty cart
         clearGuestCart();
         setItems([]);
       } else {
-        // App first load as guest
         setItems(readGuestCart());
       }
     }
@@ -142,19 +163,23 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   // ── addToCart ────────────────────────────────────────────────────────────
   const addToCart = useCallback(
-    async (item: Omit<CartItem, 'quantity'>, qty = 1) => {
+    async (item: Omit<CartItem, 'quantity' | 'cartKey'>, qty = 1) => {
+      const cartKey = makeCartKey(item.productId, item.variations);
       if (isLoggedIn) {
-        const existing = items.find(i => i.productId === item.productId);
+        const existing = items.find(i => i.cartKey === cartKey);
         const newQty = Math.min(item.stock, (existing?.quantity ?? 0) + qty);
-        await apiPut(`/cart/${item.productId}`, { quantity: newQty });
+        await apiPut(`/cart/${item.productId}`, {
+          quantity: newQty,
+          variations: item.variations ?? {},
+        });
         await loadFromDb();
       } else {
         const current = readGuestCart();
-        const idx = current.findIndex(i => i.productId === item.productId);
+        const idx = current.findIndex(i => i.cartKey === cartKey);
         if (idx >= 0) {
           current[idx].quantity = Math.min(item.stock, current[idx].quantity + qty);
         } else {
-          current.push({ ...item, quantity: Math.min(item.stock, qty) });
+          current.push({ ...item, cartKey, quantity: Math.min(item.stock, qty) });
         }
         writeGuestCart(current);
         setItems([...current]);
@@ -165,42 +190,47 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   // ── updateQty ────────────────────────────────────────────────────────────
   const updateQty = useCallback(
-    async (productId: string, qty: number) => {
+    async (cartKey: string, qty: number) => {
+      const item = items.find(i => i.cartKey === cartKey);
+      if (!item) return;
       if (isLoggedIn) {
         if (qty <= 0) {
-          await apiDelete(`/cart/${productId}`);
+          await apiDelete(`/cart/${item.productId}`, { variations: item.variations ?? {} });
         } else {
-          await apiPut(`/cart/${productId}`, { quantity: qty });
+          await apiPut(`/cart/${item.productId}`, {
+            quantity: qty,
+            variations: item.variations ?? {},
+          });
         }
         await loadFromDb();
       } else {
         const current = readGuestCart();
         const updated =
           qty <= 0
-            ? current.filter(i => i.productId !== productId)
-            : current.map(i =>
-                i.productId === productId ? { ...i, quantity: qty } : i
-              );
+            ? current.filter(i => i.cartKey !== cartKey)
+            : current.map(i => (i.cartKey === cartKey ? { ...i, quantity: qty } : i));
         writeGuestCart(updated);
         setItems(updated);
       }
     },
-    [isLoggedIn, loadFromDb]
+    [isLoggedIn, items, loadFromDb]
   );
 
   // ── removeFromCart ───────────────────────────────────────────────────────
   const removeFromCart = useCallback(
-    async (productId: string) => {
+    async (cartKey: string) => {
+      const item = items.find(i => i.cartKey === cartKey);
+      if (!item) return;
       if (isLoggedIn) {
-        await apiDelete(`/cart/${productId}`);
+        await apiDelete(`/cart/${item.productId}`, { variations: item.variations ?? {} });
         await loadFromDb();
       } else {
-        const updated = readGuestCart().filter(i => i.productId !== productId);
+        const updated = readGuestCart().filter(i => i.cartKey !== cartKey);
         writeGuestCart(updated);
         setItems(updated);
       }
     },
-    [isLoggedIn, loadFromDb]
+    [isLoggedIn, items, loadFromDb]
   );
 
   // ── clearCart ────────────────────────────────────────────────────────────
@@ -234,3 +264,4 @@ export function useCart() {
   if (!ctx) throw new Error('useCart must be used within CartProvider');
   return ctx;
 }
+

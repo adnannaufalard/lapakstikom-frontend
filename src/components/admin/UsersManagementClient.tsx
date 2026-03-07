@@ -412,12 +412,8 @@ export function UsersManagementClient() {
 
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-sm font-semibold text-gray-900">All Users</h1>
-          <p className="text-[10px] text-gray-500 mt-0.5">Kelola semua pengguna platform</p>
-        </div>
+      {/* Actions */}
+      <div className="flex justify-end">
         <div className="flex gap-2">
           <a
             href="/admin/activity-logs"

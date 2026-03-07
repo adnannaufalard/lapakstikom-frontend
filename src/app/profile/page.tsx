@@ -8,13 +8,16 @@ import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
 import { Button } from '@/components/ui/Button';
 import { Alert } from '@/components/ui/Alert';
-import { getRoleLabel, formatCurrency } from '@/lib/utils';
+import { getRoleLabel, formatCurrency, formatDate, getOrderStatusLabel } from '@/lib/utils';
 import { apiPut, apiPost, apiGet, ApiResponse } from '@/lib/api';
 import { getToken } from '@/lib/auth';
+import { getMyOrders } from '@/lib/orders';
+import { Order } from '@/types';
 import { ImageCropModal } from '@/components/profile/ImageCropModal';
 import { Store, Package, ShoppingCart, Wallet, ArrowRight, Shield, CheckCircle2, Loader2 } from 'lucide-react';
 import { HiUser, HiShoppingBag } from 'react-icons/hi2';
 import { RiLockPasswordFill, RiStore2Fill } from 'react-icons/ri';
+import { MdShoppingBag } from 'react-icons/md';
 
 interface SellerStatus {
   is_seller: boolean;
@@ -55,6 +58,32 @@ function ProfilePageContent() {
   const [orderTab, setOrderTab] = useState('all');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Orders state
+  const [myOrders, setMyOrders] = useState<Order[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [ordersPage, setOrdersPage] = useState(1);
+  const [ordersTotalPages, setOrdersTotalPages] = useState(1);
+
+  const ORDER_TAB_STATUS: Record<string, string> = {
+    all:       '',
+    unpaid:    'WAITING_PAYMENT',
+    packed:    'PAID_ESCROW',
+    shipped:   'SHIPPED',
+    done:      'COMPLETED',
+    cancelled: 'CANCELLED',
+    return:    'REFUND_REQUESTED,REFUNDED',
+  };
+
+  const STATUS_COLOR: Record<string, string> = {
+    WAITING_PAYMENT:  'bg-yellow-100 text-yellow-800',
+    PAID_ESCROW:      'bg-blue-100 text-blue-800',
+    SHIPPED:          'bg-purple-100 text-purple-800',
+    COMPLETED:        'bg-green-100 text-green-800',
+    CANCELLED:        'bg-red-100 text-red-800',
+    REFUND_REQUESTED: 'bg-orange-100 text-orange-800',
+    REFUNDED:         'bg-gray-100 text-gray-800',
+  };
+
   // Set tab from URL param
   useEffect(() => {
     const tab = searchParams.get('tab');
@@ -62,6 +91,21 @@ function ProfilePageContent() {
       setActiveTab(tab);
     }
   }, [searchParams]);
+
+  // Fetch orders when orders tab is active
+  useEffect(() => {
+    if (activeTab !== 'orders' || !isLoggedIn) return;
+    setOrdersLoading(true);
+    const status = ORDER_TAB_STATUS[orderTab] ?? '';
+    getMyOrders({ status: status || undefined, page: ordersPage, limit: 10 })
+      .then((res) => {
+        setMyOrders(res.data);
+        setOrdersTotalPages(res.meta.totalPages);
+      })
+      .catch(console.error)
+      .finally(() => setOrdersLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, isLoggedIn, orderTab, ordersPage]);
 
   // Form states
   const [formData, setFormData] = useState({
@@ -780,24 +824,12 @@ function ProfilePageContent() {
                 <div>
                   <h2 className="text-xl font-semibold text-gray-900 mb-4">Pesanan Saya</h2>
 
-                  {/* Search bar */}
-                  <div className="relative mb-4">
-                    <input
-                      type="text"
-                      placeholder="Cari pesanan (nama produk, no. pesanan...)"
-                      className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-gray-50"
-                    />
-                    <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                    </svg>
-                  </div>
-
                   {/* Status tabs */}
                   <div className="flex gap-1 overflow-x-auto pb-1 mb-6 border-b border-gray-100">
                     {[
                       { key: 'all',       label: 'Semua' },
                       { key: 'unpaid',    label: 'Belum Bayar' },
-                      { key: 'packed',    label: 'Sedang Dikemas' },
+                      { key: 'packed',    label: 'Dikemas' },
                       { key: 'shipped',   label: 'Dikirim' },
                       { key: 'done',      label: 'Selesai' },
                       { key: 'cancelled', label: 'Dibatalkan' },
@@ -805,7 +837,7 @@ function ProfilePageContent() {
                     ].map(t => (
                       <button
                         key={t.key}
-                        onClick={() => setOrderTab(t.key)}
+                        onClick={() => { setOrderTab(t.key); setOrdersPage(1); }}
                         className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap transition-colors relative ${
                           orderTab === t.key
                             ? 'text-blue-600 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-blue-600'
@@ -817,19 +849,97 @@ function ProfilePageContent() {
                     ))}
                   </div>
 
-                  {/* Empty state */}
-                  <div className="text-center py-12">
-                    <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
-                      <svg className="w-8 h-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-                      </svg>
+                  {/* Orders list */}
+                  {ordersLoading ? (
+                    <div className="space-y-4">
+                      {[...Array(3)].map((_, i) => (
+                        <div key={i} className="bg-gray-50 rounded-xl p-5 animate-pulse">
+                          <div className="h-4 bg-gray-200 rounded w-1/3 mb-3" />
+                          <div className="h-4 bg-gray-200 rounded w-1/2" />
+                        </div>
+                      ))}
                     </div>
-                    <h3 className="text-base font-medium text-gray-900 mb-1">Belum ada pesanan</h3>
-                    <p className="text-sm text-gray-500 mb-4">Mulai berbelanja dan pesanan Anda akan muncul di sini</p>
-                    <Link href="/products">
-                      <Button>Mulai Belanja</Button>
-                    </Link>
-                  </div>
+                  ) : myOrders.length === 0 ? (
+                    <div className="text-center py-12">
+                      <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                        <svg className="w-8 h-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                        </svg>
+                      </div>
+                      <h3 className="text-base font-medium text-gray-900 mb-1">Belum ada pesanan</h3>
+                      <p className="text-sm text-gray-500 mb-4">Mulai berbelanja dan pesanan Anda akan muncul di sini</p>
+                      <Link href="/products"><Button>Mulai Belanja</Button></Link>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {myOrders.map((order) => (
+                        <div key={order.id} className="border border-gray-200 rounded-xl overflow-hidden hover:shadow-md transition-shadow">
+                          <div className="p-5">
+                            {/* Header */}
+                            <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                              <div>
+                                <p className="text-xs text-gray-400">{formatDate(order.created_at)}</p>
+                                <p className="font-medium text-gray-900 font-mono text-sm">{order.order_code}</p>
+                                {(order.seller_name_snapshot || order.seller_name) && (
+                                  <p className="text-xs text-gray-400 mt-0.5">
+                                    Penjual: <span className="font-medium text-gray-600">{order.seller_name_snapshot || order.seller_name}</span>
+                                  </p>
+                                )}
+                              </div>
+                              <span className={`px-3 py-1 rounded-full text-xs font-semibold ${STATUS_COLOR[order.status] ?? 'bg-gray-100 text-gray-700'}`}>
+                                {getOrderStatusLabel(order.status)}
+                              </span>
+                            </div>
+
+                            {/* Items */}
+                            {order.items && order.items.length > 0 && (
+                              <div className="border-t border-gray-100 pt-3 space-y-2">
+                                {order.items.slice(0, 2).map((item) => (
+                                  <div key={item.id} className="flex items-center gap-3">
+                                    <div className="w-12 h-12 bg-gray-100 rounded-lg flex-shrink-0 overflow-hidden flex items-center justify-center border border-gray-100">
+                                      {item.product_image_url ? (
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        <img src={item.product_image_url} alt={item.product_title_snapshot} className="w-full h-full object-cover" />
+                                      ) : (
+                                        <MdShoppingBag className="w-5 h-5 text-gray-300" />
+                                      )}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-medium text-gray-900 truncate">{item.product_title_snapshot}</p>
+                                      <p className="text-xs text-gray-500">{item.quantity}x {formatCurrency(item.price_snapshot)}</p>
+                                    </div>
+                                  </div>
+                                ))}
+                                {order.items.length > 2 && (
+                                  <p className="text-xs text-gray-400">+{order.items.length - 2} produk lainnya</p>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Footer */}
+                            <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
+                              <div>
+                                <p className="text-xs text-gray-400">Total</p>
+                                <p className="font-bold text-blue-600">{formatCurrency(order.total_amount)}</p>
+                              </div>
+                              <Link href={`/orders/${order.id}`}>
+                                <Button variant="outline" size="sm">Lihat Detail</Button>
+                              </Link>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Pagination */}
+                  {ordersTotalPages > 1 && (
+                    <div className="flex justify-center gap-2 mt-6">
+                      <Button variant="outline" size="sm" onClick={() => setOrdersPage(p => Math.max(1, p - 1))} disabled={ordersPage === 1}>Sebelumnya</Button>
+                      <span className="px-4 py-2 text-sm text-gray-600">Hal. {ordersPage} / {ordersTotalPages}</span>
+                      <Button variant="outline" size="sm" onClick={() => setOrdersPage(p => Math.min(ordersTotalPages, p + 1))} disabled={ordersPage === ordersTotalPages}>Berikutnya</Button>
+                    </div>
+                  )}
                 </div>
               )}
 

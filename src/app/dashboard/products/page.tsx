@@ -79,6 +79,14 @@ export default function MyProductsPage() {
     }
   }, [user, fetchProducts]);
 
+  // Refresh products when window regains focus (reflects latest stock changes)
+  useEffect(() => {
+    if (!user || user.role !== 'UKM_OFFICIAL') return;
+    const onFocus = () => fetchProducts();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [user, fetchProducts]);
+
   useEffect(() => {
     if (success) { const t = setTimeout(() => setSuccess(''), 4000); return () => clearTimeout(t); }
   }, [success]);
@@ -124,23 +132,6 @@ export default function MyProductsPage() {
   return (
     <UkmDashboardLayout ukmName={user.full_name || 'UKM'} avatarUrl={user.avatar_url}>
       <div className="space-y-6">
-        {/* Page Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">Kelola Produk</h1>
-            <p className="text-sm text-gray-500 mt-0.5">
-              {activeCount} aktif{inactiveCount > 0 ? `  ${inactiveCount} nonaktif` : ''}
-            </p>
-          </div>
-          <button
-            onClick={() => setShowCreatePanel(true)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg font-medium text-sm hover:bg-blue-700 active:bg-blue-800 transition-colors shadow-sm"
-          >
-            <MdAdd className="text-lg" />
-            Tambah Produk
-          </button>
-        </div>
-
         {/* Alerts */}
         {error && (
           <div className="flex items-center gap-3 bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
@@ -181,6 +172,16 @@ export default function MyProductsPage() {
                 <option value="DRAFT">Draft</option>
               </select>
             </div>
+            <button
+              onClick={() => setShowCreatePanel(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium text-sm hover:bg-blue-700 active:bg-blue-800 transition-colors whitespace-nowrap"
+            >
+              <MdAdd className="text-lg" />
+              Tambah Produk
+            </button>
+          </div>
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-gray-400">{activeCount} aktif{inactiveCount > 0 ? ` · ${inactiveCount} nonaktif` : ''}</p>
           </div>
 
           {categories.length > 0 && (

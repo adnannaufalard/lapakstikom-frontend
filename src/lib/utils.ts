@@ -101,13 +101,15 @@ export function getRoleLabel(role: string): string {
 // Get order status label for display
 export function getOrderStatusLabel(status: string): string {
   const labels: Record<string, string> = {
-    WAITING_PAYMENT: 'Menunggu Pembayaran',
-    PAID_ESCROW: 'Dibayar (Escrow)',
-    SHIPPED: 'Dikirim',
-    COMPLETED: 'Selesai',
-    CANCELLED: 'Dibatalkan',
+    WAITING_PAYMENT:  'Menunggu Pembayaran',
+    PAID_ESCROW:      'Menunggu Dikemas',
+    PROCESSING:       'Sedang Dikemas',
+    SHIPPED:          'Dikirim',
+    ARRIVED:          'Telah Tiba',
+    COMPLETED:        'Selesai',
+    CANCELLED:        'Dibatalkan',
     REFUND_REQUESTED: 'Refund Diminta',
-    REFUNDED: 'Direfund',
+    REFUNDED:         'Direfund',
   };
   return labels[status] || status;
 }

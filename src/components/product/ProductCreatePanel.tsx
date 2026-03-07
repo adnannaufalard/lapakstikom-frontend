@@ -45,9 +45,16 @@ export default function ProductCreatePanel({ open, onClose, onCreated }: Product
   const [categoryId, setCategoryId] = useState('');
   const [isPreorder, setIsPreorder] = useState(false);
   const [preorderDays, setPreorderDays] = useState(7);
-  const [variations, setVariations] = useState<{ name: string; options: string[] }[]>([]);
+  const [variations, setVariations] = useState<{ name: string; options: string[]; required: boolean }[]>([]);
   const [variationRaws, setVariationRaws] = useState<string[]>([]);
+  const [variationOptionPrices, setVariationOptionPrices] = useState<Record<number, Record<string, number>>>({});
+  const [variationOptionStocks, setVariationOptionStocks] = useState<Record<number, Record<string, number>>>({});
+  const [variationUseStocks, setVariationUseStocks] = useState<Record<number, boolean>>({});
   const [showVariations, setShowVariations] = useState(false);
+
+  // Tags
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
@@ -72,7 +79,8 @@ export default function ProductCreatePanel({ open, onClose, onCreated }: Product
       // reset form when closed
       setTitle(''); setDescription(''); setPriceInput(''); setPriceStrikedInput('');
       setStock(1); setCondition('NEW'); setCategoryId(''); setIsPreorder(false);
-      setPreorderDays(7); setVariations([]); setVariationRaws([]); setShowVariations(false);
+      setPreorderDays(7); setVariations([]); setVariationRaws([]); setVariationOptionPrices({}); setVariationOptionStocks({}); setVariationUseStocks({}); setShowVariations(false);
+      setTags([]); setTagInput('');
       imagePreviews.forEach(url => URL.revokeObjectURL(url));
       setSelectedImages([]); setImagePreviews([]); setError('');
     }
@@ -138,15 +146,30 @@ export default function ProductCreatePanel({ open, onClose, onCreated }: Product
         description: description.trim() || undefined,
         price,
         price_striked: priceStriked > 0 ? priceStriked : null,
-        stock,
         condition,
         category_id: categoryId || undefined,
         is_preorder: isPreorder,
         preorder_days: isPreorder ? preorderDays : undefined,
-        variations: variations.length > 0 ? variations.map((v, i) => ({
-          name: v.name,
-          options: (variationRaws[i] || '').split(',').map((s: string) => s.trim()).filter(Boolean),
-        })) : [],
+        variations: variations.length > 0 ? variations.map((v, i) => {
+          const opts = (variationRaws[i] || '').split(',').map((s: string) => s.trim()).filter(Boolean);
+          const prices = variationOptionPrices[i] || {};
+          return {
+            name: v.name,
+            options: opts,
+            option_prices: Object.fromEntries(opts.map(o => [o, prices[o] ?? 0])),
+            ...(variationUseStocks[i] ? { option_stocks: Object.fromEntries(opts.map(o => [o, variationOptionStocks[i]?.[o] ?? 0])) } : {}),
+            required: v.required !== false,
+          };
+        }) : [],
+        stock: (() => {
+          const allStocks: number[] = [];
+          Object.entries(variationUseStocks).forEach(([k, enabled]) => {
+            if (enabled) allStocks.push(...Object.values(variationOptionStocks[Number(k)] || {}));
+          });
+          if (allStocks.length > 0) return allStocks.reduce((a, b) => a + b, 0);
+          return stock;
+        })(),
+        tags: tags.length > 0 ? tags : [],
         status: 'ACTIVE',
       };
       const product = await createProduct(payload);
@@ -442,6 +465,54 @@ export default function ProductCreatePanel({ open, onClose, onCreated }: Product
             </div>
           </div>
 
+          {/*  Section: Tag  */}
+          <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-700">Tag Produk</h3>
+              <p className="text-xs text-gray-400 mt-0.5">Tambahkan tag untuk memudahkan pencarian produk</p>
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={tagInput}
+                onChange={e => setTagInput(e.target.value)}
+                onKeyDown={e => {
+                  if ((e.key === 'Enter' || e.key === ',') && tagInput.trim()) {
+                    e.preventDefault();
+                    const val = tagInput.trim().toLowerCase().replace(/[^a-z0-9\s\-]/g, '');
+                    if (val && !tags.includes(val) && tags.length < 10) {
+                      setTags(prev => [...prev, val]);
+                    }
+                    setTagInput('');
+                  }
+                }}
+                placeholder="Ketik tag lalu tekan Enter (maks. 10)"
+                className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button type="button"
+                onClick={() => {
+                  const val = tagInput.trim().toLowerCase().replace(/[^a-z0-9\s\-]/g, '');
+                  if (val && !tags.includes(val) && tags.length < 10) {
+                    setTags(prev => [...prev, val]); setTagInput('');
+                  }
+                }}
+                className="px-3 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors font-medium">
+                +
+              </button>
+            </div>
+            {tags.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {tags.map(tag => (
+                  <span key={tag} className="flex items-center gap-1 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-2.5 py-1 font-medium">
+                    #{tag}
+                    <button type="button" onClick={() => setTags(prev => prev.filter(t => t !== tag))}
+                      className="hover:text-red-500 transition-colors ml-0.5"><MdClose className="text-xs" /></button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/*  Section: Variasi  */}
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <button
@@ -455,42 +526,114 @@ export default function ProductCreatePanel({ open, onClose, onCreated }: Product
 
             {showVariations && (
               <div className="border-t border-gray-100 p-4 space-y-3">
-                <p className="text-xs text-gray-500">Tambahkan variasi seperti warna, ukuran, dll.</p>
-                {variations.map((v, idx) => (
-                  <div key={idx} className="bg-gray-50 rounded-lg p-3 space-y-2">
-                    <div className="flex items-center gap-2">
+                <p className="text-xs text-gray-500">Tambahkan variasi seperti warna, ukuran, dll. Atur harga tambahan tiap opsi.</p>
+                {variations.map((v, idx) => {
+                  const parsedOpts = (variationRaws[idx] || '').split(',').map(s => s.trim()).filter(Boolean);
+                  return (
+                    <div key={idx} className="bg-gray-50 rounded-lg p-3 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          placeholder="Nama variasi (Warna, Ukuran...)"
+                          value={v.name}
+                          onChange={e => {
+                            const next = [...variations];
+                            next[idx].name = e.target.value;
+                            setVariations(next);
+                          }}
+                          className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <button type="button" onClick={() => { setVariations(prev => prev.filter((_, i) => i !== idx)); setVariationRaws(prev => prev.filter((_, i) => i !== idx)); setVariationOptionPrices(prev => { const next = { ...prev }; delete next[idx]; return next; }); setVariationOptionStocks(prev => { const next = { ...prev }; delete next[idx]; return next; }); setVariationUseStocks(prev => { const next = { ...prev }; delete next[idx]; return next; }); }} className="text-red-400 hover:text-red-600 p-1">
+                          <MdDelete />
+                        </button>
+                      </div>
+                      {/* Toggles: Wajib/Opsional + Stok per opsi */}
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <div className="flex items-center gap-1">
+                          <span className="text-[11px] text-gray-500">Pilihan:</span>
+                          <button type="button" onClick={() => { const next = [...variations]; next[idx].required = true; setVariations(next); }} className={`px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors ${v.required !== false ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}>Wajib</button>
+                          <button type="button" onClick={() => { const next = [...variations]; next[idx].required = false; setVariations(next); }} className={`px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors ${v.required === false ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}>Opsional</button>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="text-[11px] text-gray-500">Stok per opsi:</span>
+                          <button type="button" onClick={() => setVariationUseStocks(prev => ({ ...prev, [idx]: !prev[idx] }))} className={`px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors ${variationUseStocks[idx] ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}>{variationUseStocks[idx] ? 'Aktif' : 'Nonaktif'}</button>
+                        </div>
+                      </div>
                       <input
                         type="text"
-                        placeholder="Nama variasi (Warna, Ukuran...)"
-                        value={v.name}
+                        placeholder="Opsi dipisah koma: Merah, Biru, Hijau"
+                        value={variationRaws[idx] ?? ''}
                         onChange={e => {
-                          const next = [...variations];
-                          next[idx].name = e.target.value;
-                          setVariations(next);
+                          const newRaws = [...variationRaws];
+                          newRaws[idx] = e.target.value;
+                          setVariationRaws(newRaws);
                         }}
-                        className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
-                      <button type="button" onClick={() => { setVariations(prev => prev.filter((_, i) => i !== idx)); setVariationRaws(prev => prev.filter((_, i) => i !== idx)); }} className="text-red-400 hover:text-red-600 p-1">
-                        <MdDelete />
-                      </button>
+                      {parsedOpts.length > 0 && (
+                        <div className="space-y-1.5 pt-1 border-t border-gray-200">
+                          <div className="flex items-center gap-2 text-[11px] text-gray-400 font-medium">
+                            <span className="w-24">Opsi</span>
+                            <span className="flex-1">Harga tambahan (Rp 0 = harga produk)</span>
+                            {variationUseStocks[idx] && <span className="w-24 text-center">Stok</span>}
+                          </div>
+                          {parsedOpts.map(opt => (
+                            <div key={opt} className="flex items-center gap-2">
+                              <span className="text-xs font-medium text-gray-700 w-24 truncate">{opt}</span>
+                              <div className="relative flex-1">
+                                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">Rp</span>
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  value={variationOptionPrices[idx]?.[opt] !== undefined
+                                    ? variationOptionPrices[idx][opt].toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+                                    : ''}
+                                  placeholder="0"
+                                  onChange={e => {
+                                    const raw = e.target.value.replace(/\D/g, '');
+                                    const num = parseInt(raw || '0', 10);
+                                    setVariationOptionPrices(prev => ({
+                                      ...prev,
+                                      [idx]: { ...(prev[idx] || {}), [opt]: num },
+                                    }));
+                                  }}
+                                  className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                              </div>
+                              {variationUseStocks[idx] && (
+                                <div className="relative w-24">
+                                  <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    value={variationOptionStocks[idx]?.[opt] !== undefined
+                                      ? variationOptionStocks[idx][opt].toString()
+                                      : ''}
+                                    placeholder="Stok"
+                                    onChange={e => {
+                                      const num = parseInt(e.target.value.replace(/\D/g, '') || '0', 10);
+                                      setVariationOptionStocks(prev => ({
+                                        ...prev,
+                                        [idx]: { ...(prev[idx] || {}), [opt]: num },
+                                      }));
+                                    }}
+                                    className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                          {variationUseStocks[idx] && Object.values(variationOptionStocks[idx] || {}).some(v => v > 0) && (
+                            <p className="text-[10px] text-blue-500 mt-1">Total stok = {Object.values(variationOptionStocks[idx] || {}).reduce((a, b) => a + b, 0)} (dihitung otomatis dari stok tiap opsi)</p>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    <input
-                      type="text"
-                      placeholder="Opsi dipisah koma: Merah, Biru, Hijau"
-                      value={variationRaws[idx] ?? ''}
-                      onChange={e => {
-                        const newRaws = [...variationRaws];
-                        newRaws[idx] = e.target.value;
-                        setVariationRaws(newRaws);
-                      }}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                ))}
+                  );
+                })}
                 <button
                   type="button"
                   onClick={() => {
-                    setVariations(prev => [...prev, { name: '', options: [] }]);
+                    setVariations(prev => [...prev, { name: '', options: [], required: true }]);
                     setVariationRaws(prev => [...prev, '']);
                   }}
                   className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 font-medium"

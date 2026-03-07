@@ -10,12 +10,13 @@ import { formatCurrency, formatDate, getOrderStatusLabel } from '@/lib/utils';
 import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
 import { Button } from '@/components/ui/Button';
+import { MdShoppingBag } from 'react-icons/md';
 
 const ORDER_TABS = [
   { value: '', label: 'All' },
   { value: 'WAITING_PAYMENT', label: 'Belum Bayar' },
-  { value: 'PAID_ESCROW', label: 'Sedang Dikemas' },
-  { value: 'SHIPPED', label: 'Dikirim' },
+  { value: 'PAID_ESCROW', label: 'Dikemas' },
+  { value: 'SHIPPED,ARRIVED', label: 'Dikirim' },
   { value: 'COMPLETED', label: 'Selesai' },
   { value: 'CANCELLED', label: 'Dibatalkan' },
   { value: 'REFUND_REQUESTED,REFUNDED', label: 'Pengembalian Barang' },
@@ -25,7 +26,9 @@ function getStatusColor(status: string): string {
   const colors: Record<string, string> = {
     WAITING_PAYMENT: 'bg-yellow-100 text-yellow-800',
     PAID_ESCROW: 'bg-blue-100 text-blue-800',
+    PROCESSING: 'bg-blue-100 text-blue-800',
     SHIPPED: 'bg-purple-100 text-purple-800',
+    ARRIVED: 'bg-teal-100 text-teal-800',
     COMPLETED: 'bg-green-100 text-green-800',
     CANCELLED: 'bg-red-100 text-red-800',
     REFUND_REQUESTED: 'bg-orange-100 text-orange-800',
@@ -184,9 +187,14 @@ export default function OrdersPage() {
                       <p className="text-sm text-gray-500">
                         {formatDate(order.created_at)}
                       </p>
-                      <p className="font-medium text-gray-900">
+                      <p className="font-medium text-gray-900 font-mono">
                         {order.order_code}
                       </p>
+                      {(order.seller_name_snapshot || order.seller_name) && (
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          Penjual: <span className="font-medium text-gray-600">{order.seller_name_snapshot || order.seller_name}</span>
+                        </p>
+                      )}
                     </div>
                     <span
                       className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(
@@ -203,7 +211,14 @@ export default function OrdersPage() {
                       <div className="space-y-3">
                         {order.items.slice(0, 2).map((item) => (
                           <div key={item.id} className="flex items-center gap-4">
-                            <div className="w-16 h-16 bg-gray-100 rounded-lg flex-shrink-0" />
+                            <div className="w-16 h-16 bg-gray-100 rounded-lg flex-shrink-0 overflow-hidden flex items-center justify-center border border-gray-100">
+                              {item.product_image_url ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={item.product_image_url} alt={item.product_title_snapshot} className="w-full h-full object-cover" />
+                              ) : (
+                                <MdShoppingBag className="w-7 h-7 text-gray-300" />
+                              )}
+                            </div>
                             <div className="flex-1 min-w-0">
                               <p className="font-medium text-gray-900 truncate">
                                 {item.product_title_snapshot}
